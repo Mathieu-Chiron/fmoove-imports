@@ -76,8 +76,15 @@ def process_workbooks(
     return ProcessResult(report, filename, sent, error, csv_text, stamp)
 
 
-def _handle_email(tenant: Tenant, msg: inbound.InboundEmail) -> str:
-    """Traite un email pour un client. Renvoie le statut (marque l'email « lu »)."""
+def _handle_email(msg: inbound.InboundEmail) -> str:
+    """Route l'email vers le bon client (par destinataire) puis le traite."""
+    tenant = settings.tenant_for(msg.recipients)
+    if tenant is None:
+        logger.warning(
+            "Email pour un destinataire inconnu ignoré : %s",
+            ", ".join(sorted(msg.recipients)) or "(aucun)",
+        )
+        return "skipped"
     if msg.sender not in tenant.allowed_senders:
         logger.warning("[%s] expéditeur non autorisé ignoré : %s", tenant.name, msg.sender)
         return "skipped"
@@ -109,26 +116,21 @@ def _handle_email(tenant: Tenant, msg: inbound.InboundEmail) -> str:
     return "processed"
 
 
-def _run_poll(token: str) -> dict[str, object]:
+def _run_poll(token: str) -> dict[str, int]:
     if not settings.inbound_enabled:
-        raise HTTPException(503, "Réception non configurée (POLL_TOKEN / TENANTS_JSON).")
+        raise HTTPException(
+            503, "Réception non configurée (POLL_TOKEN / MAILBOX / TENANTS_JSON)."
+        )
     if not (settings.poll_token and secrets.compare_digest(token, settings.poll_token)):
         raise HTTPException(401, "Jeton invalide.")
 
-    results: dict[str, object] = {}
-    for tenant in settings.tenants:
-        try:
-            results[tenant.name] = inbound.poll_inbox(
-                tenant.imap_host,
-                tenant.imap_port,
-                tenant.mailbox_user,
-                tenant.mailbox_password,
-                lambda msg, t=tenant: _handle_email(t, msg),
-            )
-        except Exception as exc:  # noqa: BLE001 - un client en échec n'arrête pas les autres
-            logger.exception("[%s] relève de la boîte en échec", tenant.name)
-            results[tenant.name] = {"error": str(exc)}
-    return results
+    return inbound.poll_inbox(
+        settings.imap_host,
+        settings.imap_port,
+        settings.mailbox_user,
+        settings.mailbox_password,
+        _handle_email,
+    )
 
 
 @app.get("/health", include_in_schema=False)

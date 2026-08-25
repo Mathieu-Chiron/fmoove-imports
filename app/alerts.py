@@ -1,8 +1,9 @@
-"""Envoi par email du rapport d'un import, depuis la boîte du client.
+"""Envoi par email du rapport d'un import.
 
-Chaque client répond depuis sa propre adresse (SMTP du tenant), pour que le
-« De : » corresponde à la boîte authentifiée. Best-effort : si le SMTP tombe,
-on journalise sans faire échouer le traitement.
+La connexion SMTP se fait toujours via la boîte catch-all (identifiants globaux) ;
+le « De : » est l'alias du client s'il autorise le « send-as » (`from_addr`),
+sinon l'adresse centrale (`MAILBOX_FROM`). Best-effort : si le SMTP tombe, on
+journalise sans faire échouer le traitement.
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ import logging
 import smtplib
 from email.message import EmailMessage
 
-from app.settings import Tenant
+from app.settings import Tenant, settings
 from app.transform import Report
 
 logger = logging.getLogger(__name__)
@@ -54,22 +55,26 @@ def _body(report: Report, filename: str, error: str | None, sent: bool) -> str:
     return "\n".join(lines)
 
 
-def _send(tenant: Tenant, to: str, subject: str, body: str) -> bool:
-    if not (tenant.smtp_host and tenant.from_addr):
-        logger.info("SMTP non configuré pour %s : email « %s » non envoyé", tenant.name, subject)
+def _from_for(tenant: Tenant) -> str:
+    return tenant.from_addr or settings.mailbox_from
+
+
+def _send(from_addr: str, to: str, subject: str, body: str) -> bool:
+    if not (settings.smtp_host and from_addr):
+        logger.info("SMTP non configuré : email « %s » non envoyé", subject)
         return False
     message = EmailMessage()
     message["Subject"] = subject
-    message["From"] = tenant.from_addr
+    message["From"] = from_addr
     message["To"] = to
     message.set_content(body)
     try:
-        with smtplib.SMTP(tenant.smtp_host, tenant.smtp_port, timeout=30) as smtp:
+        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=30) as smtp:
             smtp.starttls()
-            if tenant.mailbox_user:
-                smtp.login(tenant.mailbox_user, tenant.mailbox_password)
+            if settings.mailbox_user:
+                smtp.login(settings.mailbox_user, settings.mailbox_password)
             smtp.send_message(message)
-        logger.info("Email envoyé à %s (client %s)", to, tenant.name)
+        logger.info("Email envoyé à %s (de %s)", to, from_addr)
         return True
     except Exception:  # noqa: BLE001 - l'email ne doit jamais casser le traitement
         logger.exception("Envoi de l'email à %s en échec", to)
@@ -79,11 +84,11 @@ def _send(tenant: Tenant, to: str, subject: str, body: str) -> bool:
 def send_report(
     tenant: Tenant, to: str, report: Report, filename: str, error: str | None, sent: bool
 ) -> None:
-    """Envoie le rapport d'import à `to` depuis la boîte du client. Ne lève jamais."""
+    """Envoie le rapport d'import à `to`. Ne lève jamais."""
     subject = f"[{tenant.name} → Payt] {filename} — {_status_label(report, error, sent)}"
-    _send(tenant, to, subject, _body(report, filename, error, sent))
+    _send(_from_for(tenant), to, subject, _body(report, filename, error, sent))
 
 
 def send_error(tenant: Tenant, to: str, filename: str, message: str) -> None:
     """Signale un email d'import inexploitable (pièces jointes, format…)."""
-    _send(tenant, to, f"[{tenant.name} → Payt] {filename} — REJETÉ", message)
+    _send(_from_for(tenant), to, f"[{tenant.name} → Payt] {filename} — REJETÉ", message)

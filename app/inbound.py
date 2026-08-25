@@ -16,7 +16,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from email import message_from_bytes, policy
-from email.utils import parseaddr
+from email.utils import getaddresses, parseaddr
 
 import pandas as pd
 
@@ -27,18 +27,27 @@ logger = logging.getLogger(__name__)
 EXCEL_SUFFIXES = (".xlsx", ".xls")
 
 
+# En-têtes portant l'adresse de destination (utile derrière un catch-all).
+_RECIPIENT_HEADERS = ("To", "Cc", "Delivered-To", "X-Original-To", "X-Forwarded-To")
+
+
 @dataclass
 class InboundEmail:
     sender: str
     subject: str
     attachments: dict[str, bytes] = field(default_factory=dict)
+    recipients: set[str] = field(default_factory=set)
 
 
 def parse_message(raw: bytes) -> InboundEmail:
-    """Extrait l'expéditeur, le sujet et les pièces jointes d'un email brut."""
+    """Extrait expéditeur, destinataires, sujet et pièces jointes d'un email brut."""
     msg = message_from_bytes(raw, policy=policy.default)
     sender = parseaddr(msg.get("From", ""))[1].lower()
     subject = msg.get("Subject", "") or ""
+
+    header_values = [v for h in _RECIPIENT_HEADERS for v in msg.get_all(h, [])]
+    recipients = {addr.lower() for _, addr in getaddresses(header_values) if addr}
+
     attachments: dict[str, bytes] = {}
     for part in msg.walk():
         filename = part.get_filename()
@@ -47,7 +56,9 @@ def parse_message(raw: bytes) -> InboundEmail:
         payload = part.get_payload(decode=True)
         if payload:
             attachments[filename] = payload
-    return InboundEmail(sender=sender, subject=subject, attachments=attachments)
+    return InboundEmail(
+        sender=sender, subject=subject, attachments=attachments, recipients=recipients
+    )
 
 
 def _looks_like_documents(content: bytes) -> bool:
