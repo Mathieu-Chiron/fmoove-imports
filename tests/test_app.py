@@ -1,4 +1,4 @@
-"""Tests HTTP : authentification, rejet des fichiers invalides, envoi SFTP."""
+"""Tests HTTP : authentification, rejet des fichiers invalides, envoi API Payt."""
 
 import os
 
@@ -9,9 +9,8 @@ os.environ.update(
     APP_USER="fairmoove",
     APP_PASSWORD="motdepasse-test",
     PAYT_ADMINISTRATION_CODE="FAIRMOOVE",
-    PAYT_SFTP_HOST="sftp.example.test",
-    PAYT_SFTP_USER="user",
-    PAYT_SFTP_PASSWORD="secret",
+    PAYT_API_TOKEN="static-token-test",
+    PAYT_IMPORT_TOKEN="import-token-test",
 )
 
 from app import main  # noqa: E402

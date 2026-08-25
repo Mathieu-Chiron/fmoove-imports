@@ -23,13 +23,11 @@ class Settings:
     app_user: str = ""
     app_password: str = ""
 
-    # Payt — SFTP + code administration
+    # Payt — API d'import + code administration
     administration_code: str = ""
-    sftp_host: str = ""
-    sftp_port: int = 22
-    sftp_user: str = ""
-    sftp_password: str = ""
-    sftp_dir: str = "/"
+    import_url: str = "https://backend.paytsoftware.com/import/files/csv"
+    api_token: str = ""  # token statique, en-tête Authorization
+    import_token: str = ""  # token d'importation, corps de la requête
     filename_pattern: str = "%Y%m%d.csv"
 
     # Archivage Object Storage (optionnel)
@@ -53,11 +51,12 @@ class Settings:
             app_user=os.environ.get("APP_USER", "fairmoove").strip(),
             app_password=os.environ.get("APP_PASSWORD", ""),
             administration_code=os.environ.get("PAYT_ADMINISTRATION_CODE", "").strip(),
-            sftp_host=os.environ.get("PAYT_SFTP_HOST", "").strip(),
-            sftp_port=_int("PAYT_SFTP_PORT", 22),
-            sftp_user=os.environ.get("PAYT_SFTP_USER", "").strip(),
-            sftp_password=os.environ.get("PAYT_SFTP_PASSWORD", ""),
-            sftp_dir=os.environ.get("PAYT_SFTP_DIR", "/").strip() or "/",
+            import_url=os.environ.get(
+                "PAYT_IMPORT_URL", "https://backend.paytsoftware.com/import/files/csv"
+            ).strip()
+            or "https://backend.paytsoftware.com/import/files/csv",
+            api_token=os.environ.get("PAYT_API_TOKEN", ""),
+            import_token=os.environ.get("PAYT_IMPORT_TOKEN", ""),
             filename_pattern=os.environ.get("PAYT_FILENAME_PATTERN", "%Y%m%d.csv").strip()
             or "%Y%m%d.csv",
             s3_endpoint=os.environ.get("S3_ENDPOINT", "").strip(),
@@ -77,9 +76,8 @@ class Settings:
     _REQUIRED = {
         "APP_PASSWORD": "app_password",
         "PAYT_ADMINISTRATION_CODE": "administration_code",
-        "PAYT_SFTP_HOST": "sftp_host",
-        "PAYT_SFTP_USER": "sftp_user",
-        "PAYT_SFTP_PASSWORD": "sftp_password",
+        "PAYT_API_TOKEN": "api_token",
+        "PAYT_IMPORT_TOKEN": "import_token",
     }
 
     def check(self) -> list[str]:

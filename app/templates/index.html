@@ -23,7 +23,7 @@
 <body>
   <h1>Import Fairmoove → Payt</h1>
   <p>Déposez les deux exports FMS. Ils sont fusionnés en un CSV, contrôlés, puis
-     transmis à Payt par SFTP.</p>
+     transmis à l'API d'import de Payt.</p>
 
   {% if missing_config %}
     <p class="warn">⚠️ Configuration incomplète : {{ missing_config | join(", ") }}.

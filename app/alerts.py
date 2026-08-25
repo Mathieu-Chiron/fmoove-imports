@@ -3,7 +3,7 @@
 Best-effort, comme l'archivage : si le SMTP n'est pas configuré ou tombe, on
 journalise sans faire échouer la requête. Le mail part surtout pour porter les
 avertissements (emails manquants, homonymes, chute de volume) ou signaler un
-échec de dépôt SFTP à l'équipe.
+échec d'envoi à l'API Payt à l'équipe.
 """
 
 from __future__ import annotations
@@ -27,9 +27,9 @@ def _body(report: Report, filename: str, error: str | None) -> str:
         "",
     ]
     if error:
-        lines += ["⚠️ Dépôt SFTP en échec :", f"  {error}", ""]
+        lines += ["⚠️ Envoi à l'API Payt en échec :", f"  {error}", ""]
     else:
-        lines += ["Dépôt SFTP : OK", ""]
+        lines += ["Envoi à l'API Payt : OK", ""]
     if report.warnings:
         lines.append("Avertissements :")
         lines += [f"  - {w}" for w in report.warnings]
