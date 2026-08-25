@@ -45,6 +45,14 @@ class Settings:
     alert_from: str = ""
     alert_to: str = ""
 
+    # Réception par email : boîte IMAP relevée par cron
+    imap_host: str = ""
+    imap_port: int = 993
+    imap_user: str = ""
+    imap_password: str = ""
+    inbound_allowlist: str = ""  # expéditeurs autorisés, séparés par des virgules
+    poll_token: str = ""  # jeton protégeant l'endpoint déclenché par le cron
+
     @classmethod
     def from_env(cls) -> Settings:
         return cls(
@@ -70,6 +78,12 @@ class Settings:
             smtp_password=os.environ.get("SMTP_PASSWORD", ""),
             alert_from=os.environ.get("ALERT_FROM", "").strip(),
             alert_to=os.environ.get("ALERT_TO", "").strip(),
+            imap_host=os.environ.get("IMAP_HOST", "").strip(),
+            imap_port=_int("IMAP_PORT", 993),
+            imap_user=os.environ.get("IMAP_USER", "").strip(),
+            imap_password=os.environ.get("IMAP_PASSWORD", ""),
+            inbound_allowlist=os.environ.get("INBOUND_ALLOWLIST", ""),
+            poll_token=os.environ.get("POLL_TOKEN", ""),
         )
 
     # Variables sans lesquelles un envoi ne peut pas aboutir.
@@ -91,6 +105,21 @@ class Settings:
     @property
     def alerts_enabled(self) -> bool:
         return bool(self.smtp_host and self.alert_from and self.alert_to)
+
+    @property
+    def replies_enabled(self) -> bool:
+        """Suffit pour répondre à un expéditeur (pas besoin d'ALERT_TO)."""
+        return bool(self.smtp_host and self.alert_from)
+
+    @property
+    def inbound_enabled(self) -> bool:
+        return bool(
+            self.imap_host and self.imap_user and self.imap_password and self.poll_token
+        )
+
+    @property
+    def allowed_senders(self) -> set[str]:
+        return {a.strip().lower() for a in self.inbound_allowlist.split(",") if a.strip()}
 
 
 settings = Settings.from_env()
