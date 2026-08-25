@@ -1,7 +1,7 @@
-"""Tests de la réception par email, multi-clients.
+"""Tests de la réception par email en catch-all (routage par destinataire).
 
-Aucun serveur IMAP/SMTP réel : IMAP4_SSL est remplacé par un faux, et les envois
-sont espionnés. On vérifie l'identification, le routage par client, l'isolation.
+Aucun serveur IMAP/SMTP réel : IMAP4_SSL est remplacé par un faux et les envois
+sont espionnés. On vérifie l'identification, le routage par adresse, l'isolation.
 """
 
 from email.message import EmailMessage
@@ -17,20 +17,19 @@ from tests.test_transform import client, doc, workbooks
 def make_tenant(**over) -> Tenant:
     base = dict(
         name="Fairmoove",
-        imap_host="imap.test", imap_port=993,
-        smtp_host="smtp.test", smtp_port=587,
-        mailbox_user="fairmoove@md", mailbox_password="pw",
-        from_addr="fairmoove@md",
+        inbox_address="fairmoove@md",
         administration_code="FAIRMOOVE", api_token="tok", import_token="imp",
         allowed_senders={"compta@fairmoove.fr"},
+        from_addr="",
     )
     base.update(over)
     return Tenant(**base)
 
 
-def _raw_email(sender: str, files: dict[str, bytes]) -> bytes:
+def _raw_email(sender: str, to: str, files: dict[str, bytes]) -> bytes:
     msg = EmailMessage()
     msg["From"] = sender
+    msg["To"] = to
     msg["Subject"] = "Import du jour"
     msg.set_content("Voir pièces jointes.")
     for name, content in files.items():
@@ -62,19 +61,32 @@ def test_rejette_si_fichiers_non_identifiables():
         inbound.identify_files({"a.xlsx": cl, "b.xlsx": cl})
 
 
-# --- parsing d'un email brut --------------------------------------------------
+# --- parsing : expéditeur + destinataires ------------------------------------
 
-def test_parse_message_extrait_expediteur_et_pieces_jointes():
+def test_parse_message_extrait_expediteur_destinataires_et_pj():
     cl, dc = workbooks([client()], [doc()])
-    raw = _raw_email("Le Client <CLIENT@corp.test>", {"c.xlsx": cl, "d.xlsx": dc})
+    raw = _raw_email("Client <CLIENT@corp.test>", "Fairmoove <FAIRMOOVE@md>",
+                     {"c.xlsx": cl, "d.xlsx": dc})
 
     msg = inbound.parse_message(raw)
 
     assert msg.sender == "client@corp.test"
+    assert "fairmoove@md" in msg.recipients  # normalisé, sert au routage
     assert set(msg.attachments) == {"c.xlsx", "d.xlsx"}
 
 
-# --- handler par client -------------------------------------------------------
+# --- routage + handler --------------------------------------------------------
+
+@pytest.fixture
+def registry(monkeypatch):
+    monkeypatch.setattr(settings, "poll_token", "secret-poll")
+    monkeypatch.setattr(settings, "imap_host", "imap.test")
+    monkeypatch.setattr(settings, "mailbox_user", "catchall@md")
+    monkeypatch.setattr(settings, "mailbox_password", "pw")
+    monkeypatch.setattr(settings, "smtp_host", "smtp.test")
+    monkeypatch.setattr(settings, "mailbox_from", "catchall@md")
+    monkeypatch.setattr(settings, "tenants", [make_tenant()])
+
 
 @pytest.fixture
 def spies(monkeypatch):
@@ -87,47 +99,59 @@ def spies(monkeypatch):
     return calls
 
 
-def _email(sender, factures=None):
+def _email(sender, to="fairmoove@md", factures=None):
     cl, dc = workbooks([client()], factures or [doc()])
     return inbound.InboundEmail(
-        sender=sender, subject="x", attachments={"a.xlsx": cl, "b.xlsx": dc}
+        sender=sender, subject="x",
+        attachments={"a.xlsx": cl, "b.xlsx": dc}, recipients={to},
     )
 
 
-def test_expediteur_non_autorise_est_ignore(spies):
-    status = main._handle_email(make_tenant(), _email("inconnu@ext.test"))
+def test_destinataire_inconnu_est_ignore(registry, spies):
+    status = main._handle_email(_email("compta@fairmoove.fr", to="autre@md"))
 
     assert status == "skipped"
-    assert spies["upload"] == [] and spies["report"] == []
+    assert spies["upload"] == []
 
 
-def test_email_valide_utilise_les_creds_payt_du_client(spies):
-    tenant = make_tenant(administration_code="CLI2", api_token="T2", import_token="I2")
+def test_expediteur_non_autorise_est_ignore(registry, spies):
+    status = main._handle_email(_email("inconnu@ext.test"))
 
-    status = main._handle_email(tenant, _email("compta@fairmoove.fr"))
+    assert status == "skipped"
+    assert spies["upload"] == []
+
+
+def test_email_valide_route_et_utilise_les_creds_du_client(registry, spies, monkeypatch):
+    monkeypatch.setattr(
+        settings, "tenants",
+        [make_tenant(name="Client2", inbox_address="client2@md",
+                     administration_code="CLI2", api_token="T2", import_token="I2",
+                     allowed_senders={"compta@client2.fr"})],
+    )
+
+    status = main._handle_email(_email("compta@client2.fr", to="client2@md"))
 
     assert status == "processed"
     assert len(spies["upload"]) == 1
-    sent_kwargs = spies["upload"][0]
-    assert sent_kwargs["administration_code"] == "CLI2"
-    assert sent_kwargs["api_token"] == "T2"
-    assert sent_kwargs["import_token"] == "I2"
-    assert spies["report"][0][1] == "compta@fairmoove.fr"  # réponse à l'expéditeur
+    sent = spies["upload"][0]
+    assert sent["administration_code"] == "CLI2"
+    assert sent["api_token"] == "T2"
+    assert spies["report"][0][1] == "compta@client2.fr"
 
 
-def test_pieces_jointes_invalides_sont_rejetees(spies):
+def test_pieces_jointes_invalides_sont_rejetees(registry, spies):
     cl, _ = workbooks([client()], [doc()])
-    msg = inbound.InboundEmail("compta@fairmoove.fr", "x", {"seul.xlsx": cl})
+    msg = inbound.InboundEmail("compta@fairmoove.fr", "x", {"seul.xlsx": cl}, {"fairmoove@md"})
 
-    status = main._handle_email(make_tenant(), msg)
+    status = main._handle_email(msg)
 
     assert status == "rejected"
     assert spies["upload"] == [] and spies["error"]
 
 
-def test_controle_bloquant_repond_mais_n_envoie_rien(spies):
+def test_controle_bloquant_repond_mais_n_envoie_rien(registry, spies):
     status = main._handle_email(
-        make_tenant(), _email("compta@fairmoove.fr", factures=[doc(Client="INCONNU")])
+        _email("compta@fairmoove.fr", factures=[doc(Client="INCONNU")])
     )
 
     assert status == "processed"
@@ -140,8 +164,8 @@ def test_controle_bloquant_repond_mais_n_envoie_rien(spies):
 def test_poll_inbox_releve_marque_lu_et_compte(monkeypatch):
     cl, dc = workbooks([client()], [doc()])
     raws = {
-        b"1": _raw_email("compta@fairmoove.fr", {"a.xlsx": cl, "b.xlsx": dc}),
-        b"2": _raw_email("spam@ext.test", {"a.xlsx": cl, "b.xlsx": dc}),
+        b"1": _raw_email("compta@fairmoove.fr", "fairmoove@md", {"a.xlsx": cl, "b.xlsx": dc}),
+        b"2": _raw_email("spam@ext.test", "fairmoove@md", {"a.xlsx": cl, "b.xlsx": dc}),
     }
 
     class FakeIMAP:
@@ -177,51 +201,25 @@ def test_poll_inbox_releve_marque_lu_et_compte(monkeypatch):
     assert summary["seen"] == 2
     assert summary["processed"] == 1
     assert summary["skipped"] == 1
-    assert captured["imap"].stored == [b"1", b"2"]  # les deux marqués lus
+    assert captured["imap"].stored == [b"1", b"2"]
 
 
-# --- endpoints & isolation ----------------------------------------------------
+# --- endpoints ----------------------------------------------------------------
 
-@pytest.fixture
-def two_tenants(monkeypatch):
-    monkeypatch.setattr(settings, "poll_token", "secret-poll")
-    monkeypatch.setattr(
-        settings, "tenants",
-        [
-            make_tenant(name="Fairmoove", imap_host="imap.test"),
-            make_tenant(name="Client2", imap_host="imap2.test", mailbox_user="c2@md"),
-        ],
-    )
-
-
-def test_poll_endpoint_exige_le_bon_jeton(two_tenants, monkeypatch):
+def test_poll_endpoint_exige_le_bon_jeton(registry, monkeypatch):
     monkeypatch.setattr(main.inbound, "poll_inbox", lambda *a, **k: {"seen": 0})
     api = TestClient(main.app)
 
     assert api.post("/poll-inbox", params={"token": "faux"}).status_code == 401
     ok = api.post("/poll-inbox", params={"token": "secret-poll"})
     assert ok.status_code == 200
-    assert set(ok.json()) == {"Fairmoove", "Client2"}  # les 2 clients relevés
+    assert ok.json()["seen"] == 0
 
 
-def test_un_client_en_echec_n_arrete_pas_les_autres(two_tenants, monkeypatch):
-    def poll(host, *a, **k):
-        if host == "imap.test":  # boîte de Fairmoove
-            raise OSError("IMAP indisponible")
-        return {"seen": 1, "processed": 1}
-
-    monkeypatch.setattr(main.inbound, "poll_inbox", poll)
-    api = TestClient(main.app)
-
-    body = api.post("/poll-inbox", params={"token": "secret-poll"}).json()
-
-    assert "error" in body["Fairmoove"]
-    assert body["Client2"]["processed"] == 1
-
-
-def test_cron_entrypoint_lit_le_jeton_dans_le_corps(two_tenants, monkeypatch):
-    monkeypatch.setattr(main.inbound, "poll_inbox", lambda *a, **k: {"seen": 0})
+def test_cron_entrypoint_lit_le_jeton_dans_le_corps(registry, monkeypatch):
+    monkeypatch.setattr(main.inbound, "poll_inbox", lambda *a, **k: {"seen": 5})
     api = TestClient(main.app)
 
     r = api.post("/", json={"token": "secret-poll"})
     assert r.status_code == 200
+    assert r.json()["seen"] == 5
