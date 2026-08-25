@@ -1,0 +1,18 @@
+[project]
+name = "fairmoove-payt"
+version = "1.0.0"
+description = "Import Fairmoove → Payt : fusion de deux exports Excel en CSV et dépôt SFTP."
+requires-python = ">=3.12"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+# B008 : Depends()/File() en défaut d'argument est le pattern idiomatique FastAPI.
+ignore = ["B008"]
