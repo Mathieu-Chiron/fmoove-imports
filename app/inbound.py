@@ -98,17 +98,24 @@ def identify_files(attachments: dict[str, bytes]) -> tuple[bytes, bytes, str, st
     return clients, documents, clients_name, documents_name
 
 
-# Statut renvoyé par le handler ; détermine si l'email est marqué « lu ».
-def poll_inbox(settings, handler: Callable[[InboundEmail], str]) -> dict[str, int]:
-    """Relève les emails non lus, les passe au handler, marque les traités « lus ».
+# Le handler renvoie un statut (processed/skipped/rejected) ; détermine si
+# l'email est marqué « lu ».
+def poll_inbox(
+    imap_host: str,
+    imap_port: int,
+    imap_user: str,
+    imap_password: str,
+    handler: Callable[[InboundEmail], str],
+) -> dict[str, int]:
+    """Relève les emails non lus d'une boîte, les passe au handler, marque « lus ».
 
     Un handler qui lève laisse l'email non lu (retenté au prochain cron) ; un
     handler qui renvoie un statut marque l'email « lu ».
     """
     summary = {"seen": 0, "processed": 0, "skipped": 0, "rejected": 0, "errors": 0}
-    imap = imaplib.IMAP4_SSL(settings.imap_host, settings.imap_port)
+    imap = imaplib.IMAP4_SSL(imap_host, imap_port)
     try:
-        imap.login(settings.imap_user, settings.imap_password)
+        imap.login(imap_user, imap_password)
         imap.select("INBOX")
         _, data = imap.search(None, "UNSEEN")
         message_ids = data[0].split() if data and data[0] else []
