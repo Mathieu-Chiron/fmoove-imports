@@ -124,13 +124,17 @@ def _run_poll(token: str) -> dict[str, int]:
     if not (settings.poll_token and secrets.compare_digest(token, settings.poll_token)):
         raise HTTPException(401, "Jeton invalide.")
 
-    return inbound.poll_inbox(
-        settings.imap_host,
-        settings.imap_port,
-        settings.mailbox_user,
-        settings.mailbox_password,
-        _handle_email,
-    )
+    try:
+        return inbound.poll_inbox(
+            settings.imap_host,
+            settings.imap_port,
+            settings.mailbox_user,
+            settings.mailbox_password,
+            _handle_email,
+        )
+    except Exception as exc:  # noqa: BLE001 - remonter une raison lisible (IMAP, réseau…)
+        logger.exception("Relève de la boîte en échec")
+        raise HTTPException(502, f"Relève de la boîte impossible : {exc}") from exc
 
 
 @app.get("/health", include_in_schema=False)
