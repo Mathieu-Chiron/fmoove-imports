@@ -1,8 +1,10 @@
-# Import Fairmoove → Payt
+# Import → Payt (multi-clients)
 
-Outil interne à usage unique : Fairmoove dépose ses deux exports FMS, l'application
-les fusionne en un CSV au format d'import Payt, le contrôle, et le transmet
-automatiquement à l'API d'import de Payt.
+Outil interne : chaque client envoie ses deux exports FMS par email à sa boîte
+dédiée ; l'application les fusionne en un CSV au format d'import Payt, le contrôle,
+et le transmet automatiquement à l'**API d'import de l'administration Payt de ce
+client**. Chaque client a sa propre boîte mail et sa propre administration Payt
+(voir `TENANTS_JSON`).
 
 Payt traite les fichiers importés une fois par jour, généralement vers 1 h du
 matin. Une réponse 2xx de l'API ne signifie donc pas que l'import a réussi : elle
@@ -11,28 +13,25 @@ vérifie le lendemain dans l'onglet Import de l'administration Payt.
 
 ## Fonctionnement
 
-1. Le client s'authentifie (HTTP Basic) et dépose « base clients » et « tous documents ».
-2. L'application fusionne les deux classeurs sur la raison sociale du client.
-3. Elle applique les contrôles :
+1. Le client envoie **un seul email** avec ses deux exports FMS (« base clients »
+   et « tous documents ») en pièces jointes, à sa boîte dédiée.
+2. Un **cron horaire** appelle `POST /poll-inbox` ; l'app relève **la boîte de
+   chaque client** en IMAP, ne retient que les expéditeurs autorisés, et
+   identifie les deux fichiers **par leur contenu** (onglets Factures/Avoirs vs
+   colonnes Raison sociale/Adresse).
+3. Elle fusionne les deux classeurs et applique les contrôles :
    - **bloquants** — fichier vide, champ obligatoire manquant, facture rattachée à
      un client absent de la base, code postal français invalide. Rien n'est envoyé.
    - **avertissements** — email manquant, raisons sociales en doublon, chute de
-     volume de plus de 30 % par rapport au dernier envoi. L'envoi a lieu, et un
-     récapitulatif part par mail.
-4. Le CSV est encodé en base64 et transmis à l'API d'import de Payt
-   (`POST /import/files/csv`). Le token statique part en en-tête `Authorization`,
-   le `import_token` dans le corps.
-5. Le CSV et les deux fichiers sources sont archivés dans Object Storage.
+     volume de plus de 30 % par rapport au dernier envoi. L'envoi a lieu.
+4. Le CSV est encodé en base64 et transmis à l'API d'import de l'**administration
+   Payt du client** (`POST /import/files/csv`) : token statique en en-tête
+   `Authorization`, `import_token` dans le corps.
+5. L'app **répond par email** (depuis la boîte du client) avec le rapport, marque
+   le message « lu » (jamais rejoué), et archive le CSV + les sources.
 
-## Deux déclencheurs, un même traitement
-
-- **Page web** (`/import`) — dépôt manuel des deux Excel, rapport à l'écran.
-- **Email** — le client envoie **un seul email** avec les deux exports FMS en
-  pièces jointes à une boîte dédiée (`imports@…`). Un **cron horaire** relève la
-  boîte en IMAP (`POST /poll-inbox`), identifie les deux fichiers **par leur
-  contenu**, applique le même traitement, puis **répond par email** avec le
-  rapport. Seuls les expéditeurs de `INBOUND_ALLOWLIST` sont acceptés ; les
-  messages traités sont marqués « lus » (jamais rejoués).
+Les clients sont **isolés** : creds Payt propres à chacun, et une erreur sur une
+boîte n'empêche pas le traitement des autres.
 
 ## Règles de transformation
 
@@ -74,40 +73,34 @@ que pendant les quelques secondes d'un dépôt.
 scw registry namespace create name=fairmoove-payt region=fr-par
 scw config get secret-key | docker login rg.fr-par.scw.cloud -u nologin --password-stdin
 docker buildx build --platform linux/amd64 --provenance=false \
-  -t rg.fr-par.scw.cloud/fairmoove-payt/app:1.1.0 --push .
+  -t rg.fr-par.scw.cloud/fairmoove-payt/app:1.3.0 --push .
 
 # 2. Namespace Serverless Containers  ->  note l'ID renvoyé
 scw container namespace create name=fairmoove-payt region=fr-par
 
-# 3. Conteneur (les secrets sont stockés chiffrés côté Scaleway)
+# 3. Conteneur (POLL_TOKEN et TENANTS_JSON stockés chiffrés côté Scaleway)
+#    TENANTS_JSON = le registre des clients, compacté sur une seule ligne.
 scw container container create \
   namespace-id=<namespace-id> \
   name=fairmoove-payt \
-  image=rg.fr-par.scw.cloud/fairmoove-payt/app:1.2.0 \
+  image=rg.fr-par.scw.cloud/fairmoove-payt/app:1.3.0 \
   port=8080 min-scale=0 max-scale=1 memory-limit-bytes=1GB mvcpu-limit=1000 \
-  environment-variables.APP_USER=fairmoove \
-  environment-variables.PAYT_ADMINISTRATION_CODE=<code> \
-  environment-variables.IMAP_HOST=<host> environment-variables.IMAP_USER=imports@<domaine> \
-  environment-variables.SMTP_HOST=<host> environment-variables.ALERT_FROM=imports@<domaine> \
-  environment-variables.INBOUND_ALLOWLIST=<expediteur@client> \
-  secret-environment-variables.APP_PASSWORD=<valeur> \
-  secret-environment-variables.PAYT_API_TOKEN=<valeur> \
-  secret-environment-variables.PAYT_IMPORT_TOKEN=<valeur> \
-  secret-environment-variables.IMAP_PASSWORD=<valeur> \
-  secret-environment-variables.SMTP_PASSWORD=<valeur> \
   secret-environment-variables.POLL_TOKEN=<valeur> \
+  secret-environment-variables.TENANTS_JSON="$(cat tenants.json)" \
   region=fr-par
 
 # 4. Déclencher le déploiement, puis récupérer l'URL publique
 scw container container deploy <container-id> region=fr-par
 scw container container get <container-id> region=fr-par -o json | jq -r .public_endpoint
 
-# 5. Cron horaire : relève la boîte email et lance les imports
+# 5. Cron horaire : relève la boîte de chaque client et lance les imports
 scw container cron create container-id=<container-id> region=fr-par \
   schedule="0 * * * *" args='{"token":"<POLL_TOKEN>"}'
 ```
 
-`GET /health` renvoie l'état et la liste des variables manquantes.
+`GET /health` renvoie la liste des clients configurés et les problèmes de config.
+**Ajouter un client** = ajouter une entrée à `TENANTS_JSON` puis `container update`
++ `deploy`.
 
 ### Rollback
 
@@ -123,10 +116,13 @@ scw container container deploy <container-id> region=fr-par
 Aucune base de données, aucune migration : le rollback est immédiat et sans
 perte. Les archives déjà écrites dans Object Storage ne sont pas affectées.
 
-## Avant la première mise en production
+## Ajouter / mettre en production un client
 
-- Renseigner l'`administration_code` réel et vérifier la convention de nommage
-  attendue par Payt (`PAYT_FILENAME_PATTERN`, par défaut `AAAAMMJJ.csv`).
-- Activer l'import automatique dans l'onglet Import de l'administration Payt.
-- Activer la protection contre les fichiers vides côté Payt.
-- Faire un premier envoi sur l'environnement de test Payt, pas en production.
+- Créer sa boîte mail dédiée (IMAP + SMTP, mot de passe d'application) et
+  ajouter son entrée dans `TENANTS_JSON` (`administration_code`, tokens Payt,
+  `allowed_senders`).
+- Vérifier la convention de nommage attendue par Payt (`PAYT_FILENAME_PATTERN`,
+  par défaut `AAAAMMJJ.csv`).
+- Activer l'import automatique dans l'onglet Import de son administration Payt,
+  et la protection contre les fichiers vides.
+- Faire un premier envoi de test avant de compter sur le flux quotidien.

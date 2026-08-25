@@ -9,12 +9,16 @@ volume (avertissement, jamais bloquant).
 from __future__ import annotations
 
 import logging
+import re
 
 from app.settings import settings
 
 logger = logging.getLogger(__name__)
 
-_STATE_KEY = "state/last_row_count.txt"
+
+def _slug(tenant_key: str) -> str:
+    """Clé de chemin S3 sûre à partir du nom du client."""
+    return re.sub(r"[^a-z0-9._-]+", "-", tenant_key.strip().lower()) or "default"
 
 
 def _client():
@@ -35,20 +39,23 @@ def _client():
     )
 
 
-def read_last_row_count() -> int | None:
-    """Nombre de lignes du dernier envoi archivé, ou None si indisponible."""
+def read_last_row_count(tenant_key: str) -> int | None:
+    """Nombre de lignes du dernier envoi archivé de ce client, ou None."""
     client = _client()
     if client is None:
         return None
     try:
-        obj = client.get_object(Bucket=settings.s3_bucket, Key=_STATE_KEY)
+        obj = client.get_object(
+            Bucket=settings.s3_bucket, Key=f"state/{_slug(tenant_key)}/last_row_count.txt"
+        )
         return int(obj["Body"].read().decode().strip())
     except Exception:  # noqa: BLE001 - best-effort, l'absence est normale au 1er envoi
-        logger.info("Compteur du dernier envoi indisponible")
+        logger.info("Compteur du dernier envoi indisponible (%s)", tenant_key)
         return None
 
 
 def save_run(
+    tenant_key: str,
     stamp: str,
     csv_text: str,
     sources: dict[str, bytes],
@@ -60,7 +67,8 @@ def save_run(
         logger.info("Archivage non configuré : run %s non archivé", stamp)
         return
     bucket = settings.s3_bucket
-    prefix = f"runs/{stamp}"
+    slug = _slug(tenant_key)
+    prefix = f"runs/{slug}/{stamp}"
     try:
         client.put_object(
             Bucket=bucket,
@@ -71,8 +79,10 @@ def save_run(
         for name, content in sources.items():
             client.put_object(Bucket=bucket, Key=f"{prefix}/sources/{name}", Body=content)
         client.put_object(
-            Bucket=bucket, Key=_STATE_KEY, Body=str(row_count).encode()
+            Bucket=bucket,
+            Key=f"state/{slug}/last_row_count.txt",
+            Body=str(row_count).encode(),
         )
-        logger.info("Run %s archivé (%d lignes)", stamp, row_count)
+        logger.info("Run %s/%s archivé (%d lignes)", slug, stamp, row_count)
     except Exception:  # noqa: BLE001 - l'archivage ne doit jamais casser un envoi
         logger.exception("Archivage du run %s en échec", stamp)
