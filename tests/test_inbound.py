@@ -223,3 +223,15 @@ def test_cron_entrypoint_lit_le_jeton_dans_le_corps(registry, monkeypatch):
     r = api.post("/", json={"token": "secret-poll"})
     assert r.status_code == 200
     assert r.json()["seen"] == 5
+
+
+def test_echec_de_releve_remonte_une_raison_lisible(registry, monkeypatch):
+    def boom(*a, **k):
+        raise OSError("IMAP: authentification refusée")
+
+    monkeypatch.setattr(main.inbound, "poll_inbox", boom)
+    api = TestClient(main.app, raise_server_exceptions=False)
+
+    r = api.post("/poll-inbox", params={"token": "secret-poll"})
+    assert r.status_code == 502
+    assert "authentification refusée" in r.json()["detail"]
