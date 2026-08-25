@@ -60,28 +60,31 @@ L'application tourne en Serverless Container avec scale à zéro : elle ne coût
 que pendant les quelques secondes d'un dépôt.
 
 ```bash
-# 1. Image
-docker build -t rg.fr-par.scw.cloud/<namespace>/fairmoove-payt:1.0.0 .
-docker push  rg.fr-par.scw.cloud/<namespace>/fairmoove-payt:1.0.0
+# 1. Registry + image (build amd64, y compris depuis un Mac Apple Silicon)
+scw registry namespace create name=fairmoove-payt region=fr-par
+scw config get secret-key | docker login rg.fr-par.scw.cloud -u nologin --password-stdin
+docker buildx build --platform linux/amd64 --provenance=false \
+  -t rg.fr-par.scw.cloud/fairmoove-payt/app:1.1.0 --push .
 
-# 2. Secrets (une fois)
-scw secret secret create name=fairmoove-payt-api-token region=fr-par
-scw secret secret create name=fairmoove-payt-import-token region=fr-par
-scw secret secret create name=fairmoove-payt-app-password region=fr-par
+# 2. Namespace Serverless Containers  ->  note l'ID renvoyé
+scw container namespace create name=fairmoove-payt region=fr-par
 
-# 3. Conteneur
+# 3. Conteneur (les secrets sont stockés chiffrés côté Scaleway)
 scw container container create \
-  namespace-id=<container-namespace-id> \
+  namespace-id=<namespace-id> \
   name=fairmoove-payt \
-  registry-image=rg.fr-par.scw.cloud/<namespace>/fairmoove-payt:1.0.0 \
-  port=8080 min-scale=0 max-scale=1 memory-limit=1024 cpu-limit=1000 \
+  image=rg.fr-par.scw.cloud/fairmoove-payt/app:1.1.0 \
+  port=8080 min-scale=0 max-scale=1 memory-limit-bytes=1GB mvcpu-limit=1000 \
+  environment-variables.APP_USER=fairmoove \
   environment-variables.PAYT_ADMINISTRATION_CODE=<code> \
-  secret-environment-variables.0.key=PAYT_API_TOKEN \
-  secret-environment-variables.0.value=<valeur> \
-  secret-environment-variables.1.key=PAYT_IMPORT_TOKEN \
-  secret-environment-variables.1.value=<valeur> \
-  secret-environment-variables.2.key=APP_PASSWORD \
-  secret-environment-variables.2.value=<valeur>
+  secret-environment-variables.APP_PASSWORD=<valeur> \
+  secret-environment-variables.PAYT_API_TOKEN=<valeur> \
+  secret-environment-variables.PAYT_IMPORT_TOKEN=<valeur> \
+  region=fr-par
+
+# 4. Déclencher le déploiement, puis récupérer l'URL publique
+scw container container deploy <container-id> region=fr-par
+scw container container get <container-id> region=fr-par -o json | jq -r .public_endpoint
 ```
 
 `GET /health` renvoie l'état et la liste des variables manquantes.
@@ -93,7 +96,8 @@ redéployer le tag précédent.
 
 ```bash
 scw container container update <container-id> \
-  registry-image=rg.fr-par.scw.cloud/<namespace>/fairmoove-payt:<tag-précédent>
+  image=rg.fr-par.scw.cloud/fairmoove-payt/app:<tag-précédent>
+scw container container deploy <container-id> region=fr-par
 ```
 
 Aucune base de données, aucune migration : le rollback est immédiat et sans
