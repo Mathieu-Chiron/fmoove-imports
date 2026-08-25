@@ -6,6 +6,7 @@ Sortie  : le texte CSV prêt à déposer chez Payt, plus un rapport de contrôle
 
 from __future__ import annotations
 
+import csv
 import io
 import re
 import unicodedata
@@ -261,5 +262,11 @@ def build_export(
             )
 
     buffer = io.StringIO()
-    export.to_csv(buffer, index=False, sep=";", quoting=1, lineterminator="\r\n")
+    # QUOTE_MINIMAL : on ne quote que les champs contenant le séparateur, un
+    # guillemet ou un saut de ligne. En-têtes, montants et dates restent nus,
+    # comme les exemples de la doc Payt — un import qui quote tout (y compris
+    # l'en-tête) n'est pas reconnu par Payt et crée 0 enregistrement sans erreur.
+    export.to_csv(
+        buffer, index=False, sep=";", quoting=csv.QUOTE_MINIMAL, lineterminator="\r\n"
+    )
     return buffer.getvalue(), report

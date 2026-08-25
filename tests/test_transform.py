@@ -68,6 +68,29 @@ def test_produit_une_ligne_par_facture_ouverte():
     assert report.blocking == []
 
 
+def test_en_tete_et_valeurs_simples_ne_sont_pas_quotees():
+    # Payt ne reconnaît pas un CSV dont l'en-tête est quoté : quoting minimal
+    # exigé. En-tête, montants et dates doivent rester nus.
+    cl, dc = workbooks([client()], [doc()])
+    csv_text, _ = build_export(cl, dc, administration_code="FAIRMOOVE")
+
+    header = csv_text.splitlines()[0]
+    assert header.startswith("administration_code;debtor_code;")
+    assert '"' not in header
+    assert ";1200.00;" in csv_text  # montant non quoté
+    assert ";2026-08-19;" in csv_text  # date non quotée
+
+
+def test_quote_uniquement_les_champs_qui_contiennent_le_separateur():
+    # Le séparateur va dans l'objet (invoice_description), qui n'entre pas dans
+    # la clé de rapprochement client/facture.
+    cl, dc = workbooks([client()], [doc(Objet="Audit; phase 2")])
+    csv_text, _ = build_export(cl, dc, administration_code="FAIRMOOVE")
+
+    assert '"Audit; phase 2"' in csv_text  # quoté car contient le séparateur
+    assert len(rows(csv_text)) == 1  # et toujours lisible
+
+
 def test_mappe_les_champs_obligatoires():
     cl, dc = workbooks([client()], [doc()])
     csv_text, _ = build_export(cl, dc, administration_code="FAIRMOOVE")
