@@ -1,7 +1,7 @@
 """Import Fairmoove → Payt.
 
 Le client dépose ses deux exports FMS, l'application fusionne, contrôle et
-transmet le CSV à Payt par SFTP. L'envoi est automatique dès que les contrôles
+transmet le CSV à l'API d'import de Payt. L'envoi est automatique dès que les contrôles
 bloquants passent ; les avertissements partent par mail.
 """
 
@@ -19,7 +19,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 
 from app import alerts, archive
-from app.payt import PaytUploadError, upload_csv
+from app.payt_api import PaytUploadError, upload_csv
 from app.settings import settings
 from app.transform import build_export
 
@@ -102,11 +102,10 @@ async def run_import(
             upload_csv(
                 csv_text,
                 filename,
-                host=settings.sftp_host,
-                username=settings.sftp_user,
-                password=settings.sftp_password,
-                port=settings.sftp_port,
-                remote_dir=settings.sftp_dir,
+                import_url=settings.import_url,
+                api_token=settings.api_token,
+                import_token=settings.import_token,
+                administration_code=settings.administration_code,
             )
             sent = True
         except PaytUploadError as exc:

@@ -1,11 +1,12 @@
 # Import Fairmoove → Payt
 
 Outil interne à usage unique : Fairmoove dépose ses deux exports FMS, l'application
-les fusionne en un CSV au format d'import Payt, le contrôle, et le dépose
-automatiquement sur le SFTP de Payt.
+les fusionne en un CSV au format d'import Payt, le contrôle, et le transmet
+automatiquement à l'API d'import de Payt.
 
-Payt relève les fichiers une fois par jour, généralement vers 1 h du matin.
-Un dépôt réussi ne signifie donc pas que l'import a réussi : le résultat se
+Payt traite les fichiers importés une fois par jour, généralement vers 1 h du
+matin. Une réponse 2xx de l'API ne signifie donc pas que l'import a réussi : elle
+confirme seulement que le fichier est accepté pour traitement. Le résultat se
 vérifie le lendemain dans l'onglet Import de l'administration Payt.
 
 ## Fonctionnement
@@ -18,8 +19,9 @@ vérifie le lendemain dans l'onglet Import de l'administration Payt.
    - **avertissements** — email manquant, raisons sociales en doublon, chute de
      volume de plus de 30 % par rapport au dernier envoi. L'envoi a lieu, et un
      récapitulatif part par mail.
-4. Le CSV est déposé sur le SFTP de Payt sous un nom temporaire puis renommé, pour
-   que Payt ne relève jamais un fichier partiellement transféré.
+4. Le CSV est encodé en base64 et transmis à l'API d'import de Payt
+   (`POST /import/files/csv`). Le token statique part en en-tête `Authorization`,
+   le `import_token` dans le corps.
 5. Le CSV et les deux fichiers sources sont archivés dans Object Storage.
 
 ## Règles de transformation
@@ -58,27 +60,31 @@ L'application tourne en Serverless Container avec scale à zéro : elle ne coût
 que pendant les quelques secondes d'un dépôt.
 
 ```bash
-# 1. Image
-docker build -t rg.fr-par.scw.cloud/<namespace>/fairmoove-payt:1.0.0 .
-docker push  rg.fr-par.scw.cloud/<namespace>/fairmoove-payt:1.0.0
+# 1. Registry + image (build amd64, y compris depuis un Mac Apple Silicon)
+scw registry namespace create name=fairmoove-payt region=fr-par
+scw config get secret-key | docker login rg.fr-par.scw.cloud -u nologin --password-stdin
+docker buildx build --platform linux/amd64 --provenance=false \
+  -t rg.fr-par.scw.cloud/fairmoove-payt/app:1.1.0 --push .
 
-# 2. Secrets (une fois)
-scw secret secret create name=fairmoove-payt-sftp-password region=fr-par
-scw secret secret create name=fairmoove-payt-app-password region=fr-par
+# 2. Namespace Serverless Containers  ->  note l'ID renvoyé
+scw container namespace create name=fairmoove-payt region=fr-par
 
-# 3. Conteneur
+# 3. Conteneur (les secrets sont stockés chiffrés côté Scaleway)
 scw container container create \
-  namespace-id=<container-namespace-id> \
+  namespace-id=<namespace-id> \
   name=fairmoove-payt \
-  registry-image=rg.fr-par.scw.cloud/<namespace>/fairmoove-payt:1.0.0 \
-  port=8080 min-scale=0 max-scale=1 memory-limit=1024 cpu-limit=1000 \
+  image=rg.fr-par.scw.cloud/fairmoove-payt/app:1.1.0 \
+  port=8080 min-scale=0 max-scale=1 memory-limit-bytes=1GB mvcpu-limit=1000 \
+  environment-variables.APP_USER=fairmoove \
   environment-variables.PAYT_ADMINISTRATION_CODE=<code> \
-  environment-variables.PAYT_SFTP_HOST=<host> \
-  environment-variables.PAYT_SFTP_USER=<user> \
-  secret-environment-variables.0.key=PAYT_SFTP_PASSWORD \
-  secret-environment-variables.0.value=<valeur> \
-  secret-environment-variables.1.key=APP_PASSWORD \
-  secret-environment-variables.1.value=<valeur>
+  secret-environment-variables.APP_PASSWORD=<valeur> \
+  secret-environment-variables.PAYT_API_TOKEN=<valeur> \
+  secret-environment-variables.PAYT_IMPORT_TOKEN=<valeur> \
+  region=fr-par
+
+# 4. Déclencher le déploiement, puis récupérer l'URL publique
+scw container container deploy <container-id> region=fr-par
+scw container container get <container-id> region=fr-par -o json | jq -r .public_endpoint
 ```
 
 `GET /health` renvoie l'état et la liste des variables manquantes.
@@ -90,7 +96,8 @@ redéployer le tag précédent.
 
 ```bash
 scw container container update <container-id> \
-  registry-image=rg.fr-par.scw.cloud/<namespace>/fairmoove-payt:<tag-précédent>
+  image=rg.fr-par.scw.cloud/fairmoove-payt/app:<tag-précédent>
+scw container container deploy <container-id> region=fr-par
 ```
 
 Aucune base de données, aucune migration : le rollback est immédiat et sans
