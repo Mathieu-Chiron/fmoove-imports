@@ -9,8 +9,6 @@ rejoués.
 
 from __future__ import annotations
 
-import contextlib
-import imaplib
 import io
 import logging
 from collections.abc import Callable
@@ -20,6 +18,7 @@ from email.utils import getaddresses, parseaddr
 
 import pandas as pd
 
+from app import gmail_client
 from app.transform import CLIENT_REQUIRED_SOURCE
 
 logger = logging.getLogger(__name__)
@@ -111,38 +110,22 @@ def identify_files(attachments: dict[str, bytes]) -> tuple[bytes, bytes, str, st
 
 # Le handler renvoie un statut (processed/skipped/rejected) ; détermine si
 # l'email est marqué « lu ».
-def poll_inbox(
-    imap_host: str,
-    imap_port: int,
-    imap_user: str,
-    imap_password: str,
-    handler: Callable[[InboundEmail], str],
-) -> dict[str, int]:
-    """Relève les emails non lus d'une boîte, les passe au handler, marque « lus ».
+def poll(handler: Callable[[InboundEmail], str]) -> dict[str, int]:
+    """Relève les non-lus via l'API Gmail, les passe au handler, marque « lus ».
 
     Un handler qui lève laisse l'email non lu (retenté au prochain cron) ; un
-    handler qui renvoie un statut marque l'email « lu ».
+    handler qui renvoie un statut marque l'email « lu » (retire le label UNREAD).
     """
     summary = {"seen": 0, "processed": 0, "skipped": 0, "rejected": 0, "errors": 0}
-    imap = imaplib.IMAP4_SSL(imap_host, imap_port)
-    try:
-        imap.login(imap_user, imap_password)
-        imap.select("INBOX")
-        _, data = imap.search(None, "UNSEEN")
-        message_ids = data[0].split() if data and data[0] else []
-        for num in message_ids:
-            summary["seen"] += 1
-            _, fetched = imap.fetch(num, "(RFC822)")
-            raw = fetched[0][1]
-            try:
-                status = handler(parse_message(raw))
-            except Exception:  # noqa: BLE001 - on garde l'email pour le prochain run
-                logger.exception("Traitement d'un email en échec, laissé non lu")
-                summary["errors"] += 1
-                continue
-            summary[status] = summary.get(status, 0) + 1
-            imap.store(num, "+FLAGS", "\\Seen")
-        return summary
-    finally:
-        with contextlib.suppress(Exception):
-            imap.logout()
+    svc = gmail_client.service()
+    for message_id in gmail_client.list_unread_ids(svc):
+        summary["seen"] += 1
+        try:
+            status = handler(parse_message(gmail_client.get_raw(svc, message_id)))
+        except Exception:  # noqa: BLE001 - on garde l'email pour le prochain run
+            logger.exception("Traitement d'un email en échec, laissé non lu")
+            summary["errors"] += 1
+            continue
+        summary[status] = summary.get(status, 0) + 1
+        gmail_client.mark_read(svc, message_id)
+    return summary

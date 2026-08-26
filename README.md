@@ -18,7 +18,8 @@ vérifie le lendemain dans l'onglet Import de l'administration Payt.
 1. Le client envoie **un seul email** avec ses deux exports FMS (« base clients »
    et « tous documents ») en pièces jointes, à son alias `client@mondomaine`.
 2. Un **cron horaire** appelle `POST /poll-inbox` ; l'app relève la **boîte
-   catch-all** en IMAP, **route** chaque email vers le bon client selon l'adresse
+   catch-all** via l'**API Gmail** (un compte de service impersonne la boîte,
+   sans IMAP/2FA), **route** chaque email vers le bon client selon l'adresse
    destinataire, ne retient que les expéditeurs autorisés, et identifie les deux
    fichiers **par leur contenu** (onglets Factures/Avoirs vs colonnes Raison
    sociale/Adresse).
@@ -71,27 +72,33 @@ n'est committée dans ce dépôt, et il ne faut pas en ajouter.
 L'application tourne en Serverless Container avec scale à zéro : elle ne coûte
 que pendant les quelques secondes d'un dépôt.
 
+**Prérequis Gmail (une fois)** : projet GCP avec l'**API Gmail** activée, un
+**compte de service** + clé JSON, et un **super-admin** qui autorise la
+**délégation à l'échelle du domaine** (console admin → Sécurité → Contrôles des
+API → Délégation) avec les scopes
+`https://www.googleapis.com/auth/gmail.modify,https://www.googleapis.com/auth/gmail.send`.
+
 ```bash
 # 1. Registry + image (build amd64, y compris depuis un Mac Apple Silicon)
 scw registry namespace create name=fairmoove-payt region=fr-par
 scw config get secret-key | docker login rg.fr-par.scw.cloud -u nologin --password-stdin
 docker buildx build --platform linux/amd64 --provenance=false \
-  -t rg.fr-par.scw.cloud/fairmoove-payt/app:1.4.0 --push .
+  -t rg.fr-par.scw.cloud/fairmoove-payt/app:1.5.0 --push .
 
 # 2. Namespace Serverless Containers  ->  note l'ID renvoyé
 scw container namespace create name=fairmoove-payt region=fr-par
 
 # 3. Conteneur (les secrets sont stockés chiffrés côté Scaleway)
-#    TENANTS_JSON = le registre des clients, compacté sur une seule ligne.
+#    TENANTS_JSON = registre des clients ; service-account.json = clé du compte
+#    de service Gmail — les deux compactés sur une seule ligne.
 scw container container create \
   namespace-id=<namespace-id> \
   name=fairmoove-payt \
-  image=rg.fr-par.scw.cloud/fairmoove-payt/app:1.4.0 \
+  image=rg.fr-par.scw.cloud/fairmoove-payt/app:1.5.0 \
   port=8080 min-scale=0 max-scale=1 memory-limit-bytes=1GB mvcpu-limit=1000 \
-  environment-variables.MAILBOX_IMAP_HOST=<host> environment-variables.MAILBOX_SMTP_HOST=<host> \
   environment-variables.MAILBOX_USER=imports@mondomaine environment-variables.MAILBOX_FROM=imports@mondomaine \
   secret-environment-variables.POLL_TOKEN=<valeur> \
-  secret-environment-variables.MAILBOX_PASSWORD=<valeur> \
+  secret-environment-variables.GMAIL_SERVICE_ACCOUNT_JSON="$(cat service-account.json)" \
   secret-environment-variables.TENANTS_JSON="$(cat tenants.json)" \
   region=fr-par
 
