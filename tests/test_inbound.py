@@ -1,7 +1,8 @@
 """Tests de la réception par email en catch-all (routage par destinataire).
 
-Aucun serveur IMAP/SMTP réel : IMAP4_SSL est remplacé par un faux et les envois
-sont espionnés. On vérifie l'identification, le routage par adresse, l'isolation.
+Aucun appel Gmail réel : les primitives gmail_client sont remplacées par des
+doubles et les envois sont espionnés. On vérifie l'identification, le routage
+par adresse, l'isolation.
 """
 
 from email.message import EmailMessage
@@ -80,10 +81,8 @@ def test_parse_message_extrait_expediteur_destinataires_et_pj():
 @pytest.fixture
 def registry(monkeypatch):
     monkeypatch.setattr(settings, "poll_token", "secret-poll")
-    monkeypatch.setattr(settings, "imap_host", "imap.test")
+    monkeypatch.setattr(settings, "gmail_sa_json", '{"type": "service_account"}')
     monkeypatch.setattr(settings, "mailbox_user", "catchall@md")
-    monkeypatch.setattr(settings, "mailbox_password", "pw")
-    monkeypatch.setattr(settings, "smtp_host", "smtp.test")
     monkeypatch.setattr(settings, "mailbox_from", "catchall@md")
     monkeypatch.setattr(settings, "tenants", [make_tenant()])
 
@@ -159,55 +158,35 @@ def test_controle_bloquant_repond_mais_n_envoie_rien(registry, spies):
     assert spies["report"]
 
 
-# --- boucle IMAP (poll_inbox) -------------------------------------------------
+# --- boucle de relève (poll via Gmail) ---------------------------------------
 
-def test_poll_inbox_releve_marque_lu_et_compte(monkeypatch):
+def test_poll_releve_marque_lu_et_compte(monkeypatch):
     cl, dc = workbooks([client()], [doc()])
     raws = {
-        b"1": _raw_email("compta@fairmoove.fr", "fairmoove@md", {"a.xlsx": cl, "b.xlsx": dc}),
-        b"2": _raw_email("spam@ext.test", "fairmoove@md", {"a.xlsx": cl, "b.xlsx": dc}),
+        "1": _raw_email("compta@fairmoove.fr", "fairmoove@md", {"a.xlsx": cl, "b.xlsx": dc}),
+        "2": _raw_email("spam@ext.test", "fairmoove@md", {"a.xlsx": cl, "b.xlsx": dc}),
     }
-
-    class FakeIMAP:
-        def __init__(self, host, port):
-            self.stored = []
-
-        def login(self, u, p): ...
-        def select(self, box): ...
-        def search(self, charset, criterion):
-            return "OK", [b"1 2"]
-
-        def fetch(self, num, part):
-            return "OK", [(b"header", raws[num])]
-
-        def store(self, num, flags, value):
-            self.stored.append(num)
-
-        def logout(self): ...
-
-    captured = {}
-
-    def fake_imap(host, port):
-        captured["imap"] = FakeIMAP(host, port)
-        return captured["imap"]
-
-    monkeypatch.setattr(inbound.imaplib, "IMAP4_SSL", fake_imap)
+    marked = []
+    monkeypatch.setattr(inbound.gmail_client, "service", lambda: object())
+    monkeypatch.setattr(inbound.gmail_client, "list_unread_ids", lambda svc: ["1", "2"])
+    monkeypatch.setattr(inbound.gmail_client, "get_raw", lambda svc, i: raws[i])
+    monkeypatch.setattr(inbound.gmail_client, "mark_read", lambda svc, i: marked.append(i))
 
     def handler(msg):
         return "processed" if msg.sender == "compta@fairmoove.fr" else "skipped"
 
-    summary = inbound.poll_inbox("imap.test", 993, "u", "p", handler)
+    summary = inbound.poll(handler)
 
     assert summary["seen"] == 2
     assert summary["processed"] == 1
     assert summary["skipped"] == 1
-    assert captured["imap"].stored == [b"1", b"2"]
+    assert marked == ["1", "2"]  # les deux marqués lus
 
 
 # --- endpoints ----------------------------------------------------------------
 
 def test_poll_endpoint_exige_le_bon_jeton(registry, monkeypatch):
-    monkeypatch.setattr(main.inbound, "poll_inbox", lambda *a, **k: {"seen": 0})
+    monkeypatch.setattr(main.inbound, "poll", lambda *a, **k: {"seen": 0})
     api = TestClient(main.app)
 
     assert api.post("/poll-inbox", params={"token": "faux"}).status_code == 401
@@ -217,7 +196,7 @@ def test_poll_endpoint_exige_le_bon_jeton(registry, monkeypatch):
 
 
 def test_cron_entrypoint_lit_le_jeton_dans_le_corps(registry, monkeypatch):
-    monkeypatch.setattr(main.inbound, "poll_inbox", lambda *a, **k: {"seen": 5})
+    monkeypatch.setattr(main.inbound, "poll", lambda *a, **k: {"seen": 5})
     api = TestClient(main.app)
 
     r = api.post("/", json={"token": "secret-poll"})
@@ -229,7 +208,7 @@ def test_echec_de_releve_remonte_une_raison_lisible(registry, monkeypatch):
     def boom(*a, **k):
         raise OSError("IMAP: authentification refusée")
 
-    monkeypatch.setattr(main.inbound, "poll_inbox", boom)
+    monkeypatch.setattr(main.inbound, "poll", boom)
     api = TestClient(main.app, raise_server_exceptions=False)
 
     r = api.post("/poll-inbox", params={"token": "secret-poll"})

@@ -125,14 +125,8 @@ def _run_poll(token: str) -> dict[str, int]:
         raise HTTPException(401, "Jeton invalide.")
 
     try:
-        return inbound.poll_inbox(
-            settings.imap_host,
-            settings.imap_port,
-            settings.mailbox_user,
-            settings.mailbox_password,
-            _handle_email,
-        )
-    except Exception as exc:  # noqa: BLE001 - remonter une raison lisible (IMAP, réseau…)
+        return inbound.poll(_handle_email)
+    except Exception as exc:  # noqa: BLE001 - remonter une raison lisible (Gmail, réseau…)
         logger.exception("Relève de la boîte en échec")
         raise HTTPException(502, f"Relève de la boîte impossible : {exc}") from exc
 

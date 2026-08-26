@@ -16,11 +16,6 @@ from dataclasses import dataclass, field
 logger = logging.getLogger(__name__)
 
 
-def _int(name: str, default: int) -> int:
-    raw = os.environ.get(name, "").strip()
-    return int(raw) if raw else default
-
-
 @dataclass
 class Tenant:
     """Un client : son adresse de réception (alias) et sa configuration Payt."""
@@ -67,13 +62,9 @@ class Settings:
     filename_pattern: str = "%Y%m%d.csv"
     poll_token: str = ""
 
-    # Boîte catch-all (relevée en IMAP, répond en SMTP)
-    imap_host: str = ""
-    imap_port: int = 993
-    smtp_host: str = ""
-    smtp_port: int = 587
-    mailbox_user: str = ""
-    mailbox_password: str = ""
+    # Boîte catch-all via l'API Gmail (compte de service impersonnant MAILBOX_USER)
+    gmail_sa_json: str = ""  # clé JSON du compte de service (délégation domaine)
+    mailbox_user: str = ""  # adresse impersonnée, ex. imports@mondomaine
     mailbox_from: str = ""  # « De : » par défaut si le client n'a pas de from_addr
 
     tenants: list[Tenant] = field(default_factory=list)
@@ -88,7 +79,6 @@ class Settings:
     @classmethod
     def from_env(cls) -> Settings:
         mailbox_user = os.environ.get("MAILBOX_USER", "").strip()
-        imap_host = os.environ.get("MAILBOX_IMAP_HOST", "").strip()
         return cls(
             import_url=os.environ.get(
                 "PAYT_IMPORT_URL", "https://backend.paytsoftware.com/import/files/csv"
@@ -97,12 +87,8 @@ class Settings:
             filename_pattern=os.environ.get("PAYT_FILENAME_PATTERN", "%Y%m%d.csv").strip()
             or "%Y%m%d.csv",
             poll_token=os.environ.get("POLL_TOKEN", ""),
-            imap_host=imap_host,
-            imap_port=_int("MAILBOX_IMAP_PORT", 993),
-            smtp_host=os.environ.get("MAILBOX_SMTP_HOST", imap_host).strip(),
-            smtp_port=_int("MAILBOX_SMTP_PORT", 587),
+            gmail_sa_json=os.environ.get("GMAIL_SERVICE_ACCOUNT_JSON", ""),
             mailbox_user=mailbox_user,
-            mailbox_password=os.environ.get("MAILBOX_PASSWORD", ""),
             mailbox_from=os.environ.get("MAILBOX_FROM", mailbox_user).strip(),
             tenants=cls._parse_tenants(os.environ.get("TENANTS_JSON", "")),
             s3_endpoint=os.environ.get("S3_ENDPOINT", "").strip(),
@@ -137,14 +123,14 @@ class Settings:
 
     @property
     def mailbox_configured(self) -> bool:
-        return bool(self.imap_host and self.mailbox_user and self.mailbox_password)
+        return bool(self.gmail_sa_json and self.mailbox_user)
 
     def check(self) -> list[str]:
         problems: list[str] = []
         if not self.poll_token:
             problems.append("POLL_TOKEN")
         if not self.mailbox_configured:
-            problems.append("MAILBOX (IMAP host/user/password)")
+            problems.append("MAILBOX (GMAIL_SERVICE_ACCOUNT_JSON / MAILBOX_USER)")
         if not self.tenants:
             problems.append("TENANTS_JSON (aucun client)")
         # Deux clients ne peuvent pas partager la même adresse de réception.
