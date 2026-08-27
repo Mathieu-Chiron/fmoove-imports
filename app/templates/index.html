@@ -4,61 +4,46 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Import Fairmoove → Payt</title>
-  <style>
-    :root { color-scheme: light dark; }
-    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 3rem auto;
-           padding: 0 1rem; line-height: 1.5; }
-    h1 { font-size: 1.4rem; }
-    .hint { color: #666; font-size: .9rem; }
-    .box { padding: .75rem 1rem; border-radius: 6px; margin: 1rem 0; }
-    .warn { background: #fff3cd; border: 1px solid #ffe69c; }
-    .error { background: #f8d7da; border: 1px solid #f1aeb5; }
-    .dropzone { display: block; margin: 1.5rem 0; padding: 2.2rem 1rem; text-align: center;
-                border: 2px dashed #9aa; border-radius: 10px; cursor: pointer;
-                transition: background .15s, border-color .15s; }
-    .dropzone:hover { border-color: #0b5; }
-    .dropzone.over { border-color: #0b5; background: rgba(0,187,85,.08); }
-    .dz-title { font-weight: 600; }
-    #dz-list { list-style: none; margin: .8rem 0 0; padding: 0; }
-    #dz-list li { font-size: .9rem; color: #0a7; }
-    #dz-list li::before { content: "📄 "; }
-    button { padding: .75rem 1.5rem; font-size: 1rem; border: 0; border-radius: 6px;
-             background: #0b5; color: #fff; cursor: pointer; }
-    button:disabled { background: #999; cursor: not-allowed; }
-    footer { margin-top: 2.5rem; color: #666; font-size: .85rem; }
-  </style>
+  <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-  <h1>Import Fairmoove → Payt</h1>
-  <p>Déposez vos <strong>deux exports FMS</strong> (« base clients » et « tous
-     documents »). Ils sont fusionnés en un CSV et contrôlés, puis vous en voyez un
-     <strong>aperçu</strong> avant tout envoi à Payt.</p>
+  <header class="brand">
+    <img class="logo" src="/static/fairmoove-logo.png" alt="Fairmoove">
+    <span class="tag">Import Payt</span>
+  </header>
 
-  {% if missing_config %}
-    <p class="box warn">⚠️ Configuration incomplète : {{ missing_config | join(", ") }}.
-       L'envoi est désactivé tant que ces variables ne sont pas renseignées.</p>
-  {% endif %}
+  <main class="wrap">
+    <h1>Importer vos factures vers Payt</h1>
+    <p>Déposez vos <strong>deux exports FMS</strong> (« base clients » et « tous
+       documents »). Ils sont fusionnés en un CSV et contrôlés, puis vous en voyez un
+       <strong>aperçu</strong> avant tout envoi à Payt.</p>
 
-  {% if error %}
-    <p class="box error">⚠️ {{ error }}</p>
-  {% endif %}
+    {% if missing_config %}
+      <p class="box warn">⚠️ Configuration incomplète : {{ missing_config | join(", ") }}.
+         L'envoi est désactivé tant que ces variables ne sont pas renseignées.</p>
+    {% endif %}
 
-  <form method="post" action="/import" enctype="multipart/form-data">
-    <label class="dropzone" id="drop" for="files">
-      <input type="file" id="files" name="files" accept=".xlsx,.xls" multiple required hidden>
-      <div class="dz-title">Glissez-déposez les 2 fichiers ici</div>
-      <div class="hint">ou cliquez pour les choisir — l'ordre et les noms n'importent pas</div>
-      <ul id="dz-list"></ul>
-    </label>
-    <button type="submit" {% if missing_config %}disabled{% endif %}>
-      Fusionner et prévisualiser
-    </button>
-  </form>
+    {% if error %}
+      <p class="box error">⚠️ {{ error }}</p>
+    {% endif %}
 
-  <footer>
-    Payt traite les imports une fois par jour (~01h00). Un envoi réussi ne garantit
-    pas l'import : à vérifier le lendemain dans l'onglet Import de Payt.
-  </footer>
+    <form method="post" action="/import" enctype="multipart/form-data">
+      <label class="dropzone" id="drop" for="files">
+        <input type="file" id="files" name="files" accept=".xlsx,.xls" multiple required hidden>
+        <div class="dz-title">Glissez-déposez les 2 fichiers ici</div>
+        <div class="hint">ou cliquez pour les choisir — l'ordre et les noms n'importent pas</div>
+        <ul id="dz-list"></ul>
+      </label>
+      <button type="submit" {% if missing_config %}disabled{% endif %}>
+        Fusionner et prévisualiser
+      </button>
+    </form>
+
+    <footer>
+      Payt traite les imports une fois par jour (~01h00). Un envoi réussi ne garantit
+      pas l'import : à vérifier le lendemain dans l'onglet Import de Payt.
+    </footer>
+  </main>
 
   <script>
     const drop = document.getElementById('drop');
