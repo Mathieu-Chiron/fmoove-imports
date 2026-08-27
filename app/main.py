@@ -1,24 +1,36 @@
 """Import Fairmoove → Payt.
 
-Le client dépose ses deux exports FMS, l'application fusionne, contrôle et
-transmet le CSV à l'API d'import de Payt. L'envoi est automatique dès que les contrôles
-bloquants passent ; les avertissements partent par mail.
+Le client dépose ses deux exports FMS ; l'application fusionne, contrôle et
+affiche un **aperçu** du CSV. Rien n'est transmis à Payt tant que le client n'a
+pas **confirmé** l'envoi. L'aperçu porte le CSV généré (champ caché) que la
+confirmation renvoie tel quel — le CSV envoyé est exactement celui prévisualisé.
 """
 
 from __future__ import annotations
 
 import base64
+import csv
+import io
 import logging
 import secrets
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile, status
+from fastapi import (
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 
-from app import alerts, archive
+from app import archive
 from app.payt_api import PaytUploadError, upload_csv
 from app.settings import settings
 from app.transform import build_export
@@ -27,6 +39,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger(__name__)
 
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+PREVIEW_ROWS = 15
 
 app = FastAPI(title="Import Fairmoove → Payt", docs_url=None, redoc_url=None)
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -56,6 +69,21 @@ async def _read(upload: UploadFile, label: str) -> bytes:
     return content
 
 
+def _preview_rows(csv_text: str, limit: int = PREVIEW_ROWS):
+    """En-têtes, premières lignes (limitées), total, et si c'est tronqué."""
+    rows = list(csv.reader(io.StringIO(csv_text), delimiter=";"))
+    if not rows:
+        return [], [], 0, False
+    headers, data = rows[0], rows[1:]
+    return headers, data[:limit], len(data), len(data) > limit
+
+
+def _require_config() -> None:
+    missing = settings.check()
+    if missing:
+        raise HTTPException(500, f"Configuration incomplète : {', '.join(missing)}.")
+
+
 @app.get("/health", include_in_schema=False)
 def health() -> dict[str, object]:
     return {"status": "ok", "missing_config": settings.check()}
@@ -75,10 +103,8 @@ async def run_import(
     documents: UploadFile = File(...),
     _: str = Depends(authenticate),
 ) -> HTMLResponse:
-    missing = settings.check()
-    if missing:
-        raise HTTPException(500, f"Configuration incomplète : {', '.join(missing)}.")
-
+    """Fusionne et contrôle, puis affiche l'aperçu. N'envoie rien à Payt."""
+    _require_config()
     clients_bytes = await _read(clients, "base clients")
     documents_bytes = await _read(documents, "tous documents")
 
@@ -92,41 +118,58 @@ async def run_import(
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
 
-    now = datetime.now(UTC)
-    filename = now.strftime(settings.filename_pattern)
-    stamp = now.strftime("%Y%m%dT%H%M%S")
-    sent, error = False, None
-
-    if not report.is_blocked:
-        try:
-            upload_csv(
-                csv_text,
-                filename,
-                import_url=settings.import_url,
-                api_token=settings.api_token,
-                import_token=settings.import_token,
-                administration_code=settings.administration_code,
-            )
-            sent = True
-        except PaytUploadError as exc:
-            error = str(exc)
-
-        archive.save_run(
-            stamp,
-            csv_text,
-            {clients.filename: clients_bytes, documents.filename: documents_bytes},
-            report.row_count,
-        )
-        alerts.send_summary(report, filename, error)
+    filename = datetime.now(UTC).strftime(settings.filename_pattern)
+    headers, preview_rows, total_rows, truncated = _preview_rows(csv_text)
 
     return templates.TemplateResponse(
         request,
-        "report.html",
+        "preview.html",
         {
             "report": report,
             "filename": filename,
-            "sent": sent,
-            "error": error,
             "csv_b64": base64.b64encode(csv_text.encode("utf-8")).decode(),
+            "headers": headers,
+            "preview_rows": preview_rows,
+            "total_rows": total_rows,
+            "truncated": truncated,
         },
+    )
+
+
+@app.post("/send", response_class=HTMLResponse)
+def send(
+    request: Request,
+    csv_b64: str = Form(...),
+    filename: str = Form(...),
+    row_count: int = Form(0),
+    _: str = Depends(authenticate),
+) -> HTMLResponse:
+    """Envoie à Payt le CSV validé à l'aperçu. Appelé par la confirmation."""
+    _require_config()
+    try:
+        csv_text = base64.b64decode(csv_b64).decode("utf-8")
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise HTTPException(400, "CSV invalide.") from exc
+
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S")
+    sent, error = False, None
+    try:
+        upload_csv(
+            csv_text,
+            filename,
+            import_url=settings.import_url,
+            api_token=settings.api_token,
+            import_token=settings.import_token,
+            administration_code=settings.administration_code,
+        )
+        sent = True
+    except PaytUploadError as exc:
+        error = str(exc)
+
+    archive.save_run(stamp, csv_text, {}, row_count)
+
+    return templates.TemplateResponse(
+        request,
+        "sent.html",
+        {"sent": sent, "error": error, "filename": filename, "row_count": row_count},
     )
