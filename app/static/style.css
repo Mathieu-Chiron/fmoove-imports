@@ -1,0 +1,76 @@
+/* Charte inspirée de fairmoove.fr : vert écologique, blanc, gris, touches chaudes. */
+:root {
+  --brand: #1f9d57;
+  --brand-dark: #17824a;
+  --brand-soft: #e8f5ee;
+  --accent: #f2994a;
+  --bg: #ffffff;
+  --surface: #f5f9f6;
+  --text: #1e2a24;
+  --muted: #6b7a72;
+  --border: #d7e3db;
+  --danger-bg: #fdecec; --danger-bd: #f2b8b8; --danger-fg: #b3261e;
+  --warn-bg: #fff6e5; --warn-bd: #f5d597;
+  --ok-bg: #e8f5ee; --ok-bd: #a9d9bf;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, system-ui, "Segoe UI", Roboto, Helvetica, sans-serif;
+  color: var(--text); background: var(--bg); margin: 0; line-height: 1.55;
+}
+header.brand {
+  display: flex; align-items: center; gap: .8rem;
+  padding: .9rem 1.4rem; border-bottom: 3px solid var(--brand); background: #fff;
+}
+header.brand img.logo { height: 40px; width: auto; display: block; }
+header.brand .tag {
+  color: var(--muted); font-size: .95rem; font-weight: 600;
+  padding-left: .8rem; border-left: 1px solid var(--border);
+}
+main.wrap { max-width: 720px; margin: 0 auto; padding: 1.6rem 1.2rem 3rem; }
+body.wide main.wrap { max-width: 980px; }
+h1 { font-size: 1.5rem; color: var(--brand-dark); margin: 1.2rem 0 .4rem; }
+h2 { font-size: 1.1rem; margin: 1.8rem 0 .5rem; }
+p { margin: .6rem 0; }
+.hint { color: var(--muted); font-size: .9rem; }
+a { color: var(--brand-dark); }
+strong { color: var(--text); }
+
+.box { padding: .8rem 1rem; border-radius: 10px; margin: 1rem 0; border: 1px solid transparent; }
+.box.ok { background: var(--ok-bg); border-color: var(--ok-bd); }
+.box.warn { background: var(--warn-bg); border-color: var(--warn-bd); }
+.box.error, .box.blocked { background: var(--danger-bg); border-color: var(--danger-bd); color: var(--danger-fg); }
+ul { margin: .4rem 0 .4rem 1.2rem; }
+
+.dropzone {
+  display: block; margin: 1.5rem 0; padding: 2.6rem 1rem; text-align: center;
+  border: 2px dashed var(--brand); border-radius: 14px; background: var(--surface);
+  cursor: pointer; transition: background .15s, border-color .15s;
+}
+.dropzone:hover { background: var(--brand-soft); }
+.dropzone.over { background: var(--brand-soft); border-color: var(--brand-dark); }
+.dz-title { font-weight: 700; color: var(--brand-dark); font-size: 1.05rem; }
+#dz-list { list-style: none; margin: .9rem 0 0; padding: 0; }
+#dz-list li { color: var(--brand-dark); font-weight: 600; }
+#dz-list li::before { content: "📄 "; }
+
+button {
+  padding: .8rem 1.6rem; font-size: 1rem; font-weight: 600; border: 0; border-radius: 10px;
+  background: var(--brand); color: #fff; cursor: pointer; transition: background .15s;
+}
+button:hover { background: var(--brand-dark); }
+button:disabled { background: #9bb3a6; cursor: not-allowed; }
+
+dl { display: grid; grid-template-columns: auto 1fr; gap: .25rem 1rem; max-width: 460px; }
+dt { color: var(--muted); } dd { margin: 0; font-variant-numeric: tabular-nums; font-weight: 600; }
+
+.tablewrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; margin-top: .6rem; }
+table { border-collapse: collapse; font-size: .82rem; white-space: nowrap; width: 100%; }
+th, td { padding: .4rem .6rem; border-bottom: 1px solid var(--border); text-align: left; }
+thead th { position: sticky; top: 0; background: var(--brand-soft); color: var(--brand-dark); }
+tbody tr:nth-child(even) { background: var(--surface); }
+
+a.download { display: inline-block; margin-top: 1rem; font-weight: 600; }
+a.back { display: inline-block; margin-top: 1.5rem; color: var(--muted); }
+footer { margin-top: 2.5rem; color: var(--muted); font-size: .85rem; }

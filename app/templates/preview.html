@@ -4,81 +4,68 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Aperçu avant envoi — Fairmoove → Payt</title>
-  <style>
-    :root { color-scheme: light dark; }
-    body { font-family: system-ui, sans-serif; max-width: 960px; margin: 3rem auto;
-           padding: 0 1rem; line-height: 1.5; }
-    h1 { font-size: 1.4rem; } h2 { font-size: 1.1rem; margin-top: 1.8rem; }
-    .box { padding: .85rem 1rem; border-radius: 6px; margin: 1rem 0; }
-    .blocked, .error { background: #f8d7da; border: 1px solid #f1aeb5; }
-    .warn { background: #fff3cd; border: 1px solid #ffe69c; }
-    ul { margin: .4rem 0 .4rem 1.2rem; }
-    dl { display: grid; grid-template-columns: auto 1fr; gap: .2rem .8rem; max-width: 460px; }
-    dt { color: #666; } dd { margin: 0; font-variant-numeric: tabular-nums; }
-    .hint { color: #666; font-size: .9rem; }
-    .tablewrap { overflow-x: auto; border: 1px solid #ccc; border-radius: 6px; }
-    table { border-collapse: collapse; font-size: .82rem; white-space: nowrap; }
-    th, td { padding: .3rem .5rem; border-bottom: 1px solid #e0e0e0; text-align: left; }
-    thead th { position: sticky; top: 0; background: #f3f3f3; color: #333; }
-    button { padding: .75rem 1.5rem; font-size: 1rem; border: 0; border-radius: 6px;
-             background: #0b5; color: #fff; cursor: pointer; }
-    a.download { display: inline-block; margin-top: 1rem; }
-    a.back { display: inline-block; margin-top: 1.5rem; }
-  </style>
+  <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
-  <h1>Aperçu avant envoi</h1>
+<body class="wide">
+  <header class="brand">
+    <img class="logo" src="/static/fairmoove-logo.png" alt="Fairmoove">
+    <span class="tag">Import Payt</span>
+  </header>
 
-  {% if report.is_blocked %}
-    <div class="box blocked">
-      <strong>Rien n'a été envoyé.</strong> Des contrôles bloquants ont été détectés —
-      corrigez-les puis recommencez.
+  <main class="wrap">
+    <h1>Aperçu avant envoi</h1>
+
+    {% if report.is_blocked %}
+      <div class="box blocked">
+        <strong>Rien n'a été envoyé.</strong> Des contrôles bloquants ont été détectés —
+        corrigez-les puis recommencez.
+      </div>
+      <ul>{% for m in report.blocking %}<li>{{ m }}</li>{% endfor %}</ul>
+    {% endif %}
+
+    <dl>
+      <dt>Fichier</dt><dd>{{ filename }}</dd>
+      <dt>Lignes</dt><dd>{{ report.row_count }}</dd>
+      <dt>Débiteurs</dt><dd>{{ report.debtor_count }}</dd>
+      <dt>Encours total</dt><dd>{{ "%.2f"|format(report.total_open_amount) }} EUR</dd>
+      <dt>Emails manquants</dt><dd>{{ report.missing_emails }}</dd>
+    </dl>
+
+    {% if report.warnings %}
+      <div class="box warn">
+        <strong>Avertissements</strong> (n'empêchent pas l'envoi) :
+        <ul>{% for w in report.warnings %}<li>{{ w }}</li>{% endfor %}</ul>
+      </div>
+    {% endif %}
+
+    <h2>Aperçu du CSV</h2>
+    <p class="hint">
+      {{ preview_rows | length }} ligne(s) affichée(s){% if truncated %} sur {{ total_rows }}{% endif %}.
+    </p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr>{% for h in headers %}<th>{{ h }}</th>{% endfor %}</tr></thead>
+        <tbody>
+          {% for row in preview_rows %}
+            <tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
-    <ul>{% for m in report.blocking %}<li>{{ m }}</li>{% endfor %}</ul>
-  {% endif %}
 
-  <dl>
-    <dt>Fichier</dt><dd>{{ filename }}</dd>
-    <dt>Lignes</dt><dd>{{ report.row_count }}</dd>
-    <dt>Débiteurs</dt><dd>{{ report.debtor_count }}</dd>
-    <dt>Encours total</dt><dd>{{ "%.2f"|format(report.total_open_amount) }} EUR</dd>
-    <dt>Emails manquants</dt><dd>{{ report.missing_emails }}</dd>
-  </dl>
+    <a class="download" download="{{ filename }}"
+       href="data:text/csv;base64,{{ csv_b64 }}">⬇️ Télécharger le CSV complet</a>
 
-  {% if report.warnings %}
-    <div class="box warn">
-      <strong>Avertissements</strong> (n'empêchent pas l'envoi) :
-      <ul>{% for w in report.warnings %}<li>{{ w }}</li>{% endfor %}</ul>
-    </div>
-  {% endif %}
+    {% if not report.is_blocked %}
+      <form method="post" action="/send" style="margin-top:1.5rem">
+        <input type="hidden" name="csv_b64" value="{{ csv_b64 }}">
+        <input type="hidden" name="filename" value="{{ filename }}">
+        <input type="hidden" name="row_count" value="{{ report.row_count }}">
+        <button type="submit">Confirmer et envoyer à Payt</button>
+      </form>
+    {% endif %}
 
-  <h2>Aperçu du CSV</h2>
-  <p class="hint">
-    {{ preview_rows | length }} ligne(s) affichée(s){% if truncated %} sur {{ total_rows }}{% endif %}.
-  </p>
-  <div class="tablewrap">
-    <table>
-      <thead><tr>{% for h in headers %}<th>{{ h }}</th>{% endfor %}</tr></thead>
-      <tbody>
-        {% for row in preview_rows %}
-          <tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
-        {% endfor %}
-      </tbody>
-    </table>
-  </div>
-
-  <a class="download" download="{{ filename }}"
-     href="data:text/csv;base64,{{ csv_b64 }}">⬇️ Télécharger le CSV complet</a>
-
-  {% if not report.is_blocked %}
-    <form method="post" action="/send" style="margin-top:1.5rem">
-      <input type="hidden" name="csv_b64" value="{{ csv_b64 }}">
-      <input type="hidden" name="filename" value="{{ filename }}">
-      <input type="hidden" name="row_count" value="{{ report.row_count }}">
-      <button type="submit">Confirmer et envoyer à Payt</button>
-    </form>
-  {% endif %}
-
-  <a class="back" href="/">← Annuler / recommencer</a>
+    <a class="back" href="/">← Annuler / recommencer</a>
+  </main>
 </body>
 </html>

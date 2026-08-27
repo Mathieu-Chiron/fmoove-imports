@@ -59,6 +59,14 @@ def test_affiche_le_formulaire(api):
     response = api.get("/", auth=AUTH)
     assert response.status_code == 200
     assert "Glissez-déposez" in response.text
+    assert "/static/style.css" in response.text
+    assert "/static/fairmoove-logo.png" in response.text
+
+
+def test_sert_le_css_sans_authentification(api):
+    response = api.get("/static/style.css")
+    assert response.status_code == 200
+    assert "--brand" in response.text
 
 
 # --- zone unique + détection --------------------------------------------------

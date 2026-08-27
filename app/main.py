@@ -28,6 +28,7 @@ from fastapi import (
 )
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app import archive, detect
@@ -42,7 +43,9 @@ MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 PREVIEW_ROWS = 15
 
 app = FastAPI(title="Import Fairmoove → Payt", docs_url=None, redoc_url=None)
-templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+_here = Path(__file__).parent
+app.mount("/static", StaticFiles(directory=str(_here / "static")), name="static")
+templates = Jinja2Templates(directory=str(_here / "templates"))
 security = HTTPBasic()
 
 
