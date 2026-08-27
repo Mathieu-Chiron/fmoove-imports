@@ -30,7 +30,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 
-from app import archive
+from app import archive, detect
 from app.payt_api import PaytUploadError, upload_csv
 from app.settings import settings
 from app.transform import build_export
@@ -58,15 +58,29 @@ def authenticate(credentials: HTTPBasicCredentials = Depends(security)) -> str:
     return credentials.username
 
 
-async def _read(upload: UploadFile, label: str) -> bytes:
-    if not upload.filename.lower().endswith((".xlsx", ".xls")):
-        raise HTTPException(400, f"Le fichier « {label} » doit être un classeur Excel.")
-    content = await upload.read()
-    if not content:
-        raise HTTPException(400, f"Le fichier « {label} » est vide.")
-    if len(content) > MAX_UPLOAD_BYTES:
-        raise HTTPException(400, f"Le fichier « {label} » dépasse 20 Mo.")
-    return content
+async def _collect(files: list[UploadFile]) -> dict[str, bytes]:
+    """Lit et valide chaque fichier déposé (Excel, non vide, < 20 Mo)."""
+    contents: dict[str, bytes] = {}
+    for upload in files:
+        name = upload.filename or "(sans nom)"
+        if not name.lower().endswith((".xlsx", ".xls")):
+            raise ValueError(f"« {name} » n'est pas un classeur Excel (.xlsx).")
+        data = await upload.read()
+        if not data:
+            raise ValueError(f"« {name} » est vide.")
+        if len(data) > MAX_UPLOAD_BYTES:
+            raise ValueError(f"« {name} » dépasse 20 Mo.")
+        contents[name] = data
+    return contents
+
+
+def _index_with_error(request: Request, message: str) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request,
+        "index.html",
+        {"missing_config": settings.check(), "error": message},
+        status_code=400,
+    )
 
 
 def _preview_rows(csv_text: str, limit: int = PREVIEW_ROWS):
@@ -99,16 +113,18 @@ def home(request: Request, _: str = Depends(authenticate)) -> HTMLResponse:
 @app.post("/import", response_class=HTMLResponse)
 async def run_import(
     request: Request,
-    clients: UploadFile = File(...),
-    documents: UploadFile = File(...),
+    files: list[UploadFile] = File(...),
     _: str = Depends(authenticate),
 ) -> HTMLResponse:
-    """Fusionne et contrôle, puis affiche l'aperçu. N'envoie rien à Payt."""
-    _require_config()
-    clients_bytes = await _read(clients, "base clients")
-    documents_bytes = await _read(documents, "tous documents")
+    """Identifie les 2 exports, fusionne et contrôle, puis affiche l'aperçu.
 
+    Une seule zone d'upload : l'ordre et les noms n'importent pas, les fichiers
+    sont reconnus par leur contenu. N'envoie rien à Payt.
+    """
+    _require_config()
     try:
+        contents = await _collect(files)
+        clients_bytes, documents_bytes, _cn, _dn = detect.identify_files(contents)
         csv_text, report = build_export(
             clients_bytes,
             documents_bytes,
@@ -116,7 +132,7 @@ async def run_import(
             previous_row_count=archive.read_last_row_count(),
         )
     except ValueError as exc:
-        raise HTTPException(400, str(exc)) from exc
+        return _index_with_error(request, str(exc))
 
     filename = datetime.now(UTC).strftime(settings.filename_pattern)
     headers, preview_rows, total_rows, truncated = _preview_rows(csv_text)
