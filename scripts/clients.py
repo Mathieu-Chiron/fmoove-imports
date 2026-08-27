@@ -6,8 +6,11 @@ Chaque client a un fichier ``~/fmp-clients/<client>.env`` (jamais dans le dépô
     APP_USER=fairmoove
     APP_PASSWORD=<mot de passe fort — donné au client pour la page>
     PAYT_ADMINISTRATION_CODE=<code admin Payt du client>
-    PAYT_API_TOKEN=<token statique du client>
-    PAYT_IMPORT_TOKEN=<token d'importation du client>
+    PAYT_SFTP_HOST=<hôte SFTP de Payt>
+    PAYT_SFTP_PORT=22
+    PAYT_SFTP_USER=<compte SFTP Payt du client>
+    PAYT_SFTP_PASSWORD=<mot de passe SFTP>
+    PAYT_SFTP_DIR=.
 
 Usage :
     python3 scripts/clients.py deploy <client> [--image web-1.4.1]
@@ -35,7 +38,10 @@ NAMESPACE_ID = "02f8aee6-fb45-486f-91f2-a79c75b6f729"
 DEFAULT_IMAGE = "rg.fr-par.scw.cloud/fairmoove-payt/app:web-1.4.1"
 CLIENTS_DIR = pathlib.Path.home() / "fmp-clients"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
-REQUIRED = ("APP_PASSWORD", "PAYT_ADMINISTRATION_CODE", "PAYT_API_TOKEN", "PAYT_IMPORT_TOKEN")
+REQUIRED = (
+    "APP_PASSWORD", "PAYT_ADMINISTRATION_CODE",
+    "PAYT_SFTP_HOST", "PAYT_SFTP_USER", "PAYT_SFTP_PASSWORD",
+)
 
 
 def parse_env(text: str) -> dict[str, str]:
@@ -89,9 +95,12 @@ def deploy(client: str, image: str) -> None:
     config = [
         f"environment-variables.APP_USER={env['APP_USER']}",
         f"environment-variables.PAYT_ADMINISTRATION_CODE={env['PAYT_ADMINISTRATION_CODE']}",
+        f"environment-variables.PAYT_SFTP_HOST={env['PAYT_SFTP_HOST']}",
+        f"environment-variables.PAYT_SFTP_PORT={env.get('PAYT_SFTP_PORT', '22')}",
+        f"environment-variables.PAYT_SFTP_USER={env['PAYT_SFTP_USER']}",
+        f"environment-variables.PAYT_SFTP_DIR={env.get('PAYT_SFTP_DIR', '.')}",
         f"secret-environment-variables.APP_PASSWORD={env['APP_PASSWORD']}",
-        f"secret-environment-variables.PAYT_API_TOKEN={env['PAYT_API_TOKEN']}",
-        f"secret-environment-variables.PAYT_IMPORT_TOKEN={env['PAYT_IMPORT_TOKEN']}",
+        f"secret-environment-variables.PAYT_SFTP_PASSWORD={env['PAYT_SFTP_PASSWORD']}",
         f"region={REGION}",
     ]
 

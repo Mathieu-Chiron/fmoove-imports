@@ -18,12 +18,12 @@ def test_parse_env_tolere_commentaires_espaces_et_guillemets():
         'APP_USER = fairmoove \n'
         'APP_PASSWORD="a&b c"\n'
         '\n'
-        'PAYT_API_TOKEN=\'tok\'\n'
+        'PAYT_SFTP_PASSWORD=\'tok\'\n'
     )
     assert env == {
         "APP_USER": "fairmoove",
         "APP_PASSWORD": "a&b c",
-        "PAYT_API_TOKEN": "tok",
+        "PAYT_SFTP_PASSWORD": "tok",
     }
 
 

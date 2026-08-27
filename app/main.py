@@ -32,7 +32,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app import archive, detect
-from app.payt_api import PaytUploadError, upload_csv
+from app.payt_sftp import PaytUploadError, upload_csv
 from app.settings import settings
 from app.transform import build_export
 
@@ -176,10 +176,11 @@ def send(
         upload_csv(
             csv_text,
             filename,
-            import_url=settings.import_url,
-            api_token=settings.api_token,
-            import_token=settings.import_token,
-            administration_code=settings.administration_code,
+            host=settings.payt_sftp_host,
+            port=settings.payt_sftp_port,
+            username=settings.payt_sftp_user,
+            password=settings.payt_sftp_password,
+            remote_dir=settings.payt_sftp_dir,
         )
         sent = True
     except PaytUploadError as exc:

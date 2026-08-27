@@ -2,12 +2,11 @@
 
 Outil interne à usage unique : Fairmoove dépose ses deux exports FMS, l'application
 les fusionne en un CSV au format d'import Payt, le contrôle, et le transmet
-automatiquement à l'API d'import de Payt.
+automatiquement sur le SFTP de Payt.
 
-Payt traite les fichiers importés une fois par jour, généralement vers 1 h du
-matin. Une réponse 2xx de l'API ne signifie donc pas que l'import a réussi : elle
-confirme seulement que le fichier est accepté pour traitement. Le résultat se
-vérifie le lendemain dans l'onglet Import de l'administration Payt.
+Payt relève les fichiers déposés une fois par jour, généralement vers 1 h du
+matin. Un dépôt réussi ne signifie donc pas que l'import a réussi : le résultat
+se vérifie le lendemain dans l'onglet Import de l'administration Payt.
 
 ## Fonctionnement
 
@@ -21,9 +20,9 @@ vérifie le lendemain dans l'onglet Import de l'administration Payt.
 4. Elle affiche un **aperçu** (`POST /import`) : rapport de contrôles + tableau des
    premières lignes du CSV. **Rien n'est envoyé à ce stade.** Le CSV généré est porté
    dans un champ caché.
-5. Sur **confirmation** (`POST /send`), le CSV prévisualisé est encodé en base64 et
-   transmis à l'API d'import de Payt (`POST /import/files/csv`) : token statique en
-   en-tête `Authorization`, `import_token` dans le corps. Les 429/5xx sont rejoués.
+5. Sur **confirmation** (`POST /send`), le CSV prévisualisé est **déposé sur le SFTP
+   de Payt** sous un nom temporaire (`.part`) puis renommé, pour que Payt ne relève
+   jamais un fichier partiellement transféré.
 6. Le CSV est archivé dans Object Storage.
 
 ## Règles de transformation
@@ -79,9 +78,9 @@ scw container container create \
   port=8080 min-scale=0 max-scale=1 memory-limit-bytes=1GB mvcpu-limit=1000 \
   environment-variables.APP_USER=fairmoove \
   environment-variables.PAYT_ADMINISTRATION_CODE=<code> \
+  environment-variables.PAYT_SFTP_HOST=<host> environment-variables.PAYT_SFTP_USER=<user> \
   secret-environment-variables.APP_PASSWORD=<valeur> \
-  secret-environment-variables.PAYT_API_TOKEN=<valeur> \
-  secret-environment-variables.PAYT_IMPORT_TOKEN=<valeur> \
+  secret-environment-variables.PAYT_SFTP_PASSWORD=<valeur> \
   region=fr-par
 
 # 4. Déclencher le déploiement, puis récupérer l'URL publique
@@ -123,8 +122,10 @@ local, **jamais dans le dépôt** : `~/fmp-clients/<client>.env` —
 APP_USER=fairmoove
 APP_PASSWORD=<mot de passe fort, donné au client>
 PAYT_ADMINISTRATION_CODE=<code admin du client>
-PAYT_API_TOKEN=<token statique du client>
-PAYT_IMPORT_TOKEN=<token d'importation du client>
+PAYT_SFTP_HOST=<hôte SFTP de Payt>
+PAYT_SFTP_USER=<compte SFTP Payt du client>
+PAYT_SFTP_PASSWORD=<mot de passe SFTP>
+PAYT_SFTP_DIR=.
 ```
 
 Puis l'outil `scripts/clients.py` (Python stdlib + CLI `scw`) :

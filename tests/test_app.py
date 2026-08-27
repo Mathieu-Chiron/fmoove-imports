@@ -10,8 +10,9 @@ os.environ.update(
     APP_USER="fairmoove",
     APP_PASSWORD="motdepasse-test",
     PAYT_ADMINISTRATION_CODE="FAIRMOOVE",
-    PAYT_API_TOKEN="static-token-test",
-    PAYT_IMPORT_TOKEN="import-token-test",
+    PAYT_SFTP_HOST="sftp.paytsoftware.test",
+    PAYT_SFTP_USER="ftp_demo",
+    PAYT_SFTP_PASSWORD="secret",
 )
 
 from app import main  # noqa: E402
