@@ -112,3 +112,29 @@ perte. Les archives déjà écrites dans Object Storage ne sont pas affectées.
 - Activer l'import automatique dans l'onglet Import de l'administration Payt.
 - Activer la protection contre les fichiers vides côté Payt.
 - Faire un premier envoi sur l'environnement de test Payt, pas en production.
+
+## Plusieurs clients : un déploiement par client
+
+Chaque client a **sa propre administration Payt**, donc **son propre conteneur**
+(même image, isolation totale). La configuration d'un client vit dans un fichier
+local, **jamais dans le dépôt** : `~/fmp-clients/<client>.env` —
+
+```
+APP_USER=fairmoove
+APP_PASSWORD=<mot de passe fort, donné au client>
+PAYT_ADMINISTRATION_CODE=<code admin du client>
+PAYT_API_TOKEN=<token statique du client>
+PAYT_IMPORT_TOKEN=<token d'importation du client>
+```
+
+Puis l'outil `scripts/clients.py` (Python stdlib + CLI `scw`) :
+
+```bash
+python3 scripts/clients.py deploy acme     # crée/maj + déploie fairmoove-payt-acme
+python3 scripts/clients.py list            # liste les conteneurs clients + URLs
+```
+
+`deploy` crée le conteneur `fairmoove-payt-<client>` s'il n'existe pas, sinon le
+met à jour (image + secrets), puis le déploie et affiche l'URL et le login. Les
+secrets sont stockés **chiffrés** côté Scaleway ; le fichier `.env` local reste la
+source à conserver. Pour changer d'image : `--image web-1.4.1`.
