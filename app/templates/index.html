@@ -22,8 +22,8 @@
 </head>
 <body>
   <h1>Import Fairmoove → Payt</h1>
-  <p>Déposez les deux exports FMS. Ils sont fusionnés en un CSV, contrôlés, puis
-     transmis à l'API d'import de Payt.</p>
+  <p>Déposez les deux exports FMS. Ils sont fusionnés en un CSV et contrôlés,
+     puis vous en voyez un <strong>aperçu</strong> avant tout envoi à Payt.</p>
 
   {% if missing_config %}
     <p class="warn">⚠️ Configuration incomplète : {{ missing_config | join(", ") }}.
@@ -42,7 +42,7 @@
       <input type="file" id="documents" name="documents" accept=".xlsx,.xls" required>
     </div>
     <button type="submit" {% if missing_config %}disabled{% endif %}>
-      Fusionner et envoyer à Payt
+      Fusionner et prévisualiser
     </button>
   </form>
 

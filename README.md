@@ -15,14 +15,16 @@ vérifie le lendemain dans l'onglet Import de l'administration Payt.
 2. L'application fusionne les deux classeurs sur la raison sociale du client.
 3. Elle applique les contrôles :
    - **bloquants** — fichier vide, champ obligatoire manquant, facture rattachée à
-     un client absent de la base, code postal français invalide. Rien n'est envoyé.
+     un client absent de la base, code postal français invalide. L'envoi est interdit.
    - **avertissements** — email manquant, raisons sociales en doublon, chute de
-     volume de plus de 30 % par rapport au dernier envoi. L'envoi a lieu, et un
-     récapitulatif part par mail.
-4. Le CSV est encodé en base64 et transmis à l'API d'import de Payt
-   (`POST /import/files/csv`). Le token statique part en en-tête `Authorization`,
-   le `import_token` dans le corps.
-5. Le CSV et les deux fichiers sources sont archivés dans Object Storage.
+     volume de plus de 30 % par rapport au dernier envoi. L'envoi reste possible.
+4. Elle affiche un **aperçu** (`POST /import`) : rapport de contrôles + tableau des
+   premières lignes du CSV. **Rien n'est envoyé à ce stade.** Le CSV généré est porté
+   dans un champ caché.
+5. Sur **confirmation** (`POST /send`), le CSV prévisualisé est encodé en base64 et
+   transmis à l'API d'import de Payt (`POST /import/files/csv`) : token statique en
+   en-tête `Authorization`, `import_token` dans le corps. Les 429/5xx sont rejoués.
+6. Le CSV est archivé dans Object Storage.
 
 ## Règles de transformation
 

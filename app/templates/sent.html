@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Envoi à Payt — Fairmoove</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 3rem auto;
+           padding: 0 1rem; line-height: 1.5; }
+    h1 { font-size: 1.4rem; }
+    .box { padding: .85rem 1rem; border-radius: 6px; margin: 1rem 0; }
+    .ok { background: #d1e7dd; border: 1px solid #a3cfbb; }
+    .error { background: #f8d7da; border: 1px solid #f1aeb5; }
+    dl { display: grid; grid-template-columns: auto 1fr; gap: .2rem .8rem; }
+    dt { color: #666; } dd { margin: 0; font-variant-numeric: tabular-nums; }
+    .hint { color: #666; font-size: .9rem; margin-top: 1.5rem; }
+    a.back { display: inline-block; margin-top: 1.5rem; }
+  </style>
+</head>
+<body>
+  <h1>Envoi à Payt</h1>
+
+  {% if error %}
+    <div class="box error">
+      <strong>Le CSV n'a pas pu être envoyé :</strong> {{ error }}
+    </div>
+  {% elif sent %}
+    <div class="box ok">
+      <strong>Le fichier {{ filename }} a été déposé chez Payt.</strong>
+    </div>
+  {% endif %}
+
+  <dl>
+    <dt>Fichier</dt><dd>{{ filename }}</dd>
+    <dt>Lignes</dt><dd>{{ row_count }}</dd>
+  </dl>
+
+  {% if sent and not error %}
+    <p class="hint">
+      Payt relève les fichiers une fois par jour (~01h00). À vérifier demain dans
+      l'onglet Import de Payt.
+    </p>
+  {% endif %}
+
+  <a class="back" href="/">← Nouvel import</a>
+</body>
+</html>
