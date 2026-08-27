@@ -14,10 +14,20 @@ from __future__ import annotations
 
 import base64
 import logging
+import time
 
 import httpx
 
 logger = logging.getLogger(__name__)
+
+# Codes rejouables : 429 (limite Payt : > 3 fichiers/s) et erreurs serveur 5xx.
+# Une 400/401 n'est jamais rejouée : elle se reproduirait à l'identique.
+_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
+_MAX_ATTEMPTS = 4
+
+
+def _sleep(seconds: float) -> None:  # indirection pour neutraliser l'attente en test
+    time.sleep(seconds)
 
 
 class PaytUploadError(RuntimeError):
@@ -54,19 +64,35 @@ def upload_csv(
         "Content-Type": "application/json",
     }
 
-    try:
-        response = httpx.post(import_url, json=body, headers=headers, timeout=timeout)
-    except httpx.RequestError as exc:
-        logger.exception("Appel de l'API d'import Payt en échec")
-        raise PaytUploadError(f"Appel de l'API Payt impossible : {exc}") from exc
+    for attempt in range(1, _MAX_ATTEMPTS + 1):
+        is_last = attempt == _MAX_ATTEMPTS
+        try:
+            response = httpx.post(import_url, json=body, headers=headers, timeout=timeout)
+        except httpx.RequestError as exc:
+            logger.warning(
+                "Appel API Payt en échec (tentative %d/%d) : %s", attempt, _MAX_ATTEMPTS, exc
+            )
+            if is_last:
+                raise PaytUploadError(f"Appel de l'API Payt impossible : {exc}") from exc
+            _sleep(2 ** (attempt - 1))
+            continue
 
-    if response.status_code // 100 != 2:
+        if response.status_code // 100 == 2:
+            logger.info(
+                "CSV %s (%d octets) accepté par l'API d'import Payt", filename, len(payload)
+            )
+            return
+
         detail = response.text.strip()[:500]
+        if response.status_code in _RETRYABLE_STATUS and not is_last:
+            logger.warning(
+                "Import Payt HTTP %s, nouvelle tentative (%d/%d)",
+                response.status_code, attempt, _MAX_ATTEMPTS,
+            )
+            _sleep(2 ** (attempt - 1))
+            continue
+
         logger.error("Import Payt refusé : HTTP %s — %s", response.status_code, detail)
         raise PaytUploadError(
             f"Import Payt refusé (HTTP {response.status_code}) : {detail or 'sans détail'}"
         )
-
-    logger.info(
-        "CSV %s (%d octets) accepté par l'API d'import Payt", filename, len(payload)
-    )

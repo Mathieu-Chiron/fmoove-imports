@@ -33,6 +33,26 @@ def _args(**over):
     return {**base, **over}
 
 
+@pytest.fixture(autouse=True)
+def _no_sleep(monkeypatch):
+    monkeypatch.setattr(payt_api, "_sleep", lambda seconds: None)
+
+
+class SequencedPost:
+    """Renvoie des réponses successives (répète la dernière) ; compte les appels."""
+
+    def __init__(self, *responses):
+        self.responses = list(responses)
+        self.calls = 0
+
+    def __call__(self, url, **kw):
+        self.calls += 1
+        resp = self.responses[min(self.calls - 1, len(self.responses) - 1)]
+        if isinstance(resp, Exception):
+            raise resp
+        return resp
+
+
 def test_poste_le_csv_en_base64_sans_saut_de_ligne(monkeypatch):
     captured = {}
 
@@ -97,3 +117,41 @@ def test_le_corps_est_du_json_serialisable(monkeypatch):
     upload_csv("x", "f.csv", **_args())
 
     json.dumps(captured["json"])  # ne doit pas lever
+
+
+def test_rejoue_sur_429_puis_reussit(monkeypatch):
+    post = SequencedPost(FakeResponse(429, "slow down"), FakeResponse(200, "OK"))
+    monkeypatch.setattr(payt_api.httpx, "post", post)
+
+    upload_csv("x", "f.csv", **_args())  # ne lève pas
+
+    assert post.calls == 2
+
+
+def test_rejoue_sur_5xx_puis_reussit(monkeypatch):
+    post = SequencedPost(FakeResponse(503), FakeResponse(200))
+    monkeypatch.setattr(payt_api.httpx, "post", post)
+
+    upload_csv("x", "f.csv", **_args())
+
+    assert post.calls == 2
+
+
+def test_ne_rejoue_pas_sur_400(monkeypatch):
+    post = SequencedPost(FakeResponse(400, "mauvais champ"))
+    monkeypatch.setattr(payt_api.httpx, "post", post)
+
+    with pytest.raises(PaytUploadError, match="400"):
+        upload_csv("x", "f.csv", **_args())
+
+    assert post.calls == 1  # aucune nouvelle tentative sur une 4xx
+
+
+def test_abandonne_apres_le_max_de_tentatives(monkeypatch):
+    post = SequencedPost(FakeResponse(429))  # toujours 429
+    monkeypatch.setattr(payt_api.httpx, "post", post)
+
+    with pytest.raises(PaytUploadError, match="429"):
+        upload_csv("x", "f.csv", **_args())
+
+    assert post.calls == payt_api._MAX_ATTEMPTS
