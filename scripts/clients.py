@@ -32,7 +32,7 @@ SCW = "scw"
 REGION = "fr-par"
 # Namespace Serverless Containers (non sensible).
 NAMESPACE_ID = "02f8aee6-fb45-486f-91f2-a79c75b6f729"
-DEFAULT_IMAGE = "rg.fr-par.scw.cloud/fairmoove-payt/app:web-1.4.1"
+DEFAULT_IMAGE = "rg.fr-par.scw.cloud/fairmoove-payt/app:web-1.5.0"
 CLIENTS_DIR = pathlib.Path.home() / "fmp-clients"
 NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,40}$")
 REQUIRED = ("APP_PASSWORD", "PAYT_ADMINISTRATION_CODE", "PAYT_API_TOKEN", "PAYT_IMPORT_TOKEN")
@@ -92,8 +92,11 @@ def deploy(client: str, image: str) -> None:
         f"secret-environment-variables.APP_PASSWORD={env['APP_PASSWORD']}",
         f"secret-environment-variables.PAYT_API_TOKEN={env['PAYT_API_TOKEN']}",
         f"secret-environment-variables.PAYT_IMPORT_TOKEN={env['PAYT_IMPORT_TOKEN']}",
-        f"region={REGION}",
     ]
+    # Proxy à IP statique (Fixie), optionnel — même valeur pour tous les clients.
+    if env.get("PAYT_PROXY"):
+        config.append(f"secret-environment-variables.PAYT_PROXY={env['PAYT_PROXY']}")
+    config.append(f"region={REGION}")
 
     existing = _find_container(name)
     if existing:

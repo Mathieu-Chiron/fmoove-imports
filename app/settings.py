@@ -28,6 +28,7 @@ class Settings:
     import_url: str = "https://backend.paytsoftware.com/import/files/csv"
     api_token: str = ""  # token statique, en-tête Authorization
     import_token: str = ""  # token d'importation, corps de la requête
+    payt_proxy: str = ""  # proxy à IP statique (Fixie) pour l'appel Payt (optionnel)
     filename_pattern: str = "%Y%m%d.csv"
 
     # Archivage Object Storage (optionnel)
@@ -57,6 +58,7 @@ class Settings:
             or "https://backend.paytsoftware.com/import/files/csv",
             api_token=os.environ.get("PAYT_API_TOKEN", ""),
             import_token=os.environ.get("PAYT_IMPORT_TOKEN", ""),
+            payt_proxy=os.environ.get("PAYT_PROXY", "").strip(),
             filename_pattern=os.environ.get("PAYT_FILENAME_PATTERN", "%Y%m%d.csv").strip()
             or "%Y%m%d.csv",
             s3_endpoint=os.environ.get("S3_ENDPOINT", "").strip(),

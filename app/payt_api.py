@@ -30,6 +30,16 @@ def _sleep(seconds: float) -> None:  # indirection pour neutraliser l'attente en
     time.sleep(seconds)
 
 
+def _post(url: str, *, json: dict, headers: dict, timeout: float, proxy: str = ""):
+    """POST httpx, éventuellement via un proxy à IP statique (ex. Fixie).
+
+    Le proxy n'est appliqué qu'à l'appel Payt (pas aux autres flux, S3…), pour
+    présenter à Payt une IP de sortie fixe à whitelister sur le token.
+    """
+    with httpx.Client(proxy=proxy or None, timeout=timeout) as client:
+        return client.post(url, json=json, headers=headers)
+
+
 class PaytUploadError(RuntimeError):
     """Le dépôt via l'API n'a pas abouti."""
 
@@ -42,6 +52,7 @@ def upload_csv(
     api_token: str,
     import_token: str,
     administration_code: str,
+    proxy: str = "",
     timeout: float = 30.0,
 ) -> None:
     """Poste le CSV à Payt. Lève PaytUploadError si l'appel n'aboutit pas.
@@ -67,7 +78,9 @@ def upload_csv(
     for attempt in range(1, _MAX_ATTEMPTS + 1):
         is_last = attempt == _MAX_ATTEMPTS
         try:
-            response = httpx.post(import_url, json=body, headers=headers, timeout=timeout)
+            response = _post(
+                import_url, json=body, headers=headers, timeout=timeout, proxy=proxy
+            )
         except httpx.RequestError as exc:
             logger.warning(
                 "Appel API Payt en échec (tentative %d/%d) : %s", attempt, _MAX_ATTEMPTS, exc
