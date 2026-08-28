@@ -138,3 +138,16 @@ python3 scripts/clients.py list            # liste les conteneurs clients + URLs
 met à jour (image + secrets), puis le déploie et affiche l'URL et le login. Les
 secrets sont stockés **chiffrés** côté Scaleway ; le fichier `.env` local reste la
 source à conserver. Pour changer d'image : `--image web-1.4.1`.
+
+## IP fixe pour Payt (token restreint par IP)
+
+Le token statique de Payt peut être **restreint à une IP autorisée**. Le conteneur
+Scaleway ayant une IP de sortie **dynamique**, on route l'appel Payt (et lui seul)
+par un **proxy à IP statique** (ex. Fixie). Il suffit de renseigner `PAYT_PROXY` :
+
+```
+PAYT_PROXY=http://user:pass@proxy.usefixie.com:80
+```
+
+Cette **même IP** (celle du proxy) est à whitelister sur le token de **chaque** client
+côté Payt. Si le token n'est pas restreint par IP, laisser `PAYT_PROXY` vide.

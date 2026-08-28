@@ -180,6 +180,7 @@ def send(
             api_token=settings.api_token,
             import_token=settings.import_token,
             administration_code=settings.administration_code,
+            proxy=settings.payt_proxy,
         )
         sent = True
     except PaytUploadError as exc:
